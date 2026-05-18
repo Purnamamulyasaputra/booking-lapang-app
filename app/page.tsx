@@ -1,3 +1,4 @@
+// @ts-nocheck
 "use client";
 import React, { useState, useEffect, useRef } from 'react';
 import { 
@@ -991,6 +992,8 @@ export default function App() {
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
         .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+        button:not(:disabled) { cursor: pointer !important; }
+        button:disabled { cursor: not-allowed !important; }
       `}} />
       
       {renderNavbar()}

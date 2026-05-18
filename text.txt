@@ -1,1 +1,3 @@
 untuk menambahkan map dari react leave harus mengubah juga longtitude dan latitude di databasenya agar sesuai dengan pin map yang ditujunya
+1. tambah sso google dengan next auth v4
+2.  api auth callback google 

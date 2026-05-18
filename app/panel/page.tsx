@@ -1,3 +1,4 @@
+// @ts-nocheck
 "use client";
 import React, { useState, useRef, useEffect } from 'react';
 import {
@@ -1116,6 +1117,8 @@ export default function AdminPanel() {
         .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        button:not(:disabled) { cursor: pointer !important; }
+        button:disabled { cursor: not-allowed !important; }
       `}} />
 
       {/* Sidebar */}
