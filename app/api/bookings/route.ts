@@ -19,6 +19,23 @@ export async function GET(req: Request) {
       values.push(customerId);
     }
     
+    const fieldId = searchParams.get("fieldId");
+    const date = searchParams.get("date");
+    
+    if (fieldId) {
+      if (values.length > 0) query += ` AND`;
+      else query += ` WHERE`;
+      values.push(fieldId);
+      query += ` b.field_id = $${values.length}`;
+    }
+    
+    if (date) {
+      if (values.length > 0) query += ` AND`;
+      else query += ` WHERE`;
+      values.push(date);
+      query += ` b.booking_date = $${values.length}`;
+    }
+    
     query += ` ORDER BY b.created_at DESC`;
 
     const result = await pool.query(query, values);

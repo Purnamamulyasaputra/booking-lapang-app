@@ -41,21 +41,29 @@ export default function AdminPanel() {
     fetch('/api/bookings')
       .then(res => res.json())
       .then(data => {
-        const adapted = data.map((b: any) => ({
-          id: b.id,
-          bookingCode: b.booking_code,
-          userName: b.customer_name,
-          userPhone: b.customer_phone,
-          fieldName: b.field_name,
-          date: new Date(b.booking_date).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
-          time: `${b.start_hour}:00 - ${b.end_hour}:00`,
-          duration: b.end_hour - b.start_hour,
-          price: Number(b.total_price),
-          status: b.status.toLowerCase(),
-          paymentMethod: 'Transfer',
-          receiptImg: b.receipt_img || 'https://via.placeholder.com/400',
-          submitTime: new Date(b.created_at).toLocaleString()
-        }));
+        const adapted = data.map((b: any) => {
+          const dateObj = new Date(b.booking_date);
+          const localRawDate = dateObj.getFullYear() + '-' + String(dateObj.getMonth() + 1).padStart(2, '0') + '-' + String(dateObj.getDate()).padStart(2, '0');
+          return {
+            id: b.id,
+            bookingCode: b.booking_code,
+            userName: b.customer_name,
+            userPhone: b.customer_phone,
+            fieldName: b.field_name,
+            date: dateObj.toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
+            rawDate: localRawDate,
+            fieldId: b.field_id,
+            startHour: b.start_hour,
+            endHour: b.end_hour,
+            time: `${b.start_hour}:00 - ${b.end_hour}:00`,
+            duration: b.end_hour - b.start_hour,
+            price: Number(b.total_price),
+            status: b.status.toLowerCase(),
+            paymentMethod: 'Transfer',
+            receiptImg: b.receipt_img || 'https://via.placeholder.com/400',
+            submitTime: new Date(b.created_at).toLocaleString()
+          };
+        });
         setBookings(adapted);
       });
 
@@ -89,6 +97,10 @@ export default function AdminPanel() {
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [fieldToDelete, setFieldToDelete] = useState(null);
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
+
+  // State Jadwal Lapangan
+  const [scheduleModalField, setScheduleModalField] = useState(null);
+  const [scheduleDate, setScheduleDate] = useState(new Date().toISOString().split('T')[0]);
 
   // State Tambah Lapangan
   const [isAddFieldOpen, setIsAddFieldOpen] = useState(false);
@@ -585,7 +597,7 @@ export default function AdminPanel() {
         {/* List Body */}
         <div className="divide-y divide-gray-100">
           {fieldsData.map(field => (
-            <div key={field.id} className="p-4 md:p-0 md:grid grid-cols-12 gap-4 items-center md:px-4 md:py-4 hover:bg-gray-50/50 transition-colors">
+            <div key={field.id} className="p-4 md:p-0 md:grid grid-cols-12 gap-4 items-center md:px-4 md:py-4 hover:bg-gray-50/50 transition-colors cursor-pointer" onClick={() => { setScheduleModalField(field); setScheduleDate(new Date().toISOString().split('T')[0]); }}>
 
               {/* Info Lapangan */}
               <div className="col-span-5 mb-3 md:mb-0 flex items-center">
@@ -618,18 +630,20 @@ export default function AdminPanel() {
               </div>
 
               {/* Aksi (Edit & Delete) */}
-              <div className="col-span-2 flex justify-end md:justify-center gap-2 mt-2 md:mt-0">
+              <div className="col-span-2 flex justify-center gap-2 mt-4 md:mt-0">
                 <button
-                  onClick={() => openEditModal(field)}
-                  className="p-2.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors" title="Edit Lapangan"
+                  onClick={(e) => { e.stopPropagation(); openEditModal(field); }}
+                  className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
+                  title="Edit Lapangan"
                 >
-                  <Edit className="w-4 h-4 sm:w-5 sm:h-5" />
+                  <Edit className="w-4 h-4" />
                 </button>
                 <button
-                  onClick={() => openDeleteConfirm(field.id)}
-                  className="p-2.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg transition-colors" title="Hapus Lapangan"
+                  onClick={(e) => { e.stopPropagation(); openDeleteConfirm(field.id); }}
+                  className="p-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100 transition-colors"
+                  title="Hapus Lapangan"
                 >
-                  <Trash2 className="w-4 h-4 sm:w-5 sm:h-5" />
+                  <Trash2 className="w-4 h-4" />
                 </button>
               </div>
 
@@ -1139,6 +1153,64 @@ export default function AdminPanel() {
     );
   };
 
+  // Modal Jadwal Lapangan
+  const renderScheduleModal = () => {
+    if (!scheduleModalField) return null;
+    const fieldBookings = bookings.filter(b => 
+      b.fieldId === scheduleModalField.id && 
+      b.rawDate.startsWith(scheduleDate) && 
+      b.status !== 'dibatalkan' && b.status !== 'ditolak'
+    );
+    
+    // Generate hours 08:00 - 22:00
+    const hours = [];
+    for(let i=8; i<22; i++) {
+       const booking = fieldBookings.find(b => b.startHour <= i && b.endHour > i);
+       hours.push({ hour: i, booking });
+    }
+
+    return (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in" onClick={() => setScheduleModalField(null)}>
+        <div className="bg-white rounded-3xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+          <div className="flex justify-between items-center p-5 border-b border-gray-100 bg-gray-50">
+            <h3 className="font-extrabold text-lg text-gray-900">Jadwal Lapangan: {scheduleModalField.name}</h3>
+            <button onClick={() => setScheduleModalField(null)} className="p-2 bg-white rounded-full text-gray-400 hover:text-gray-700 border border-gray-200">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          <div className="p-5 border-b border-gray-100">
+            <label className="block text-xs font-bold text-gray-700 mb-2">Pilih Tanggal</label>
+            <input 
+              type="date" 
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-emerald-500 font-bold text-gray-900"
+              value={scheduleDate}
+              onChange={(e) => setScheduleDate(e.target.value)}
+            />
+          </div>
+          <div className="p-5 overflow-y-auto flex-1 space-y-3">
+             {hours.map(slot => (
+                <div key={slot.hour} className={`p-4 rounded-xl border flex justify-between items-center ${slot.booking ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-gray-200'}`}>
+                   <div className="font-bold text-gray-700 w-16">{String(slot.hour).padStart(2, '0')}:00</div>
+                   <div className="flex-1 px-4">
+                     {slot.booking ? (
+                        <div>
+                          <p className="text-sm font-extrabold text-emerald-800">{slot.booking.userName} <span className="font-medium text-emerald-600 ml-2">({slot.booking.userPhone})</span></p>
+                          <div className={`mt-1 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${slot.booking.status === 'dikonfirmasi' ? 'bg-emerald-600 text-white' : 'bg-yellow-400 text-yellow-900'}`}>
+                            {slot.booking.status.toUpperCase()}
+                          </div>
+                        </div>
+                     ) : (
+                        <p className="text-sm font-medium text-gray-400">Kosong</p>
+                     )}
+                   </div>
+                </div>
+             ))}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="flex h-screen bg-[#f8fafc] font-sans selection:bg-emerald-200">
       <style dangerouslySetInnerHTML={{
@@ -1197,6 +1269,7 @@ export default function AdminPanel() {
       {renderEditFieldModal()}
       {renderAddFieldModal()}
       {renderDeleteConfirmModal()}
+      {renderScheduleModal()}
 
       {/* Toast Notification */}
       {toast.show && (

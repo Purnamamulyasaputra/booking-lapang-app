@@ -9,19 +9,6 @@ import {
 
 
 
-// Helper to generate mock time slots
-const generateTimeSlots = (dateString, fieldId) => {
-  const slots = [];
-  const startHour = 8;
-  const endHour = 22;
-  const seed = (dateString?.length || 0) + fieldId;
-
-  for (let i = startHour; i < endHour; i++) {
-    const isBooked = (i + seed) % 4 === 0;
-    slots.push({ hour: i, status: isBooked ? 'booked' : 'available' });
-  }
-  return slots;
-};
 
 export default function App() {
   // --- APP STATE ---
@@ -209,11 +196,27 @@ export default function App() {
 
   useEffect(() => {
     if (selectedField && bookingDate) {
-      setTimeSlots(generateTimeSlots(bookingDate, selectedField.id));
-      if (!searchTime) {
-        setStartHour('');
-        setEndHour('');
-      }
+      fetch(`/api/bookings?fieldId=${selectedField.id}&date=${bookingDate}`)
+        .then(res => res.json())
+        .then(bookings => {
+           const slots = [];
+           const startHour = 8;
+           const endHour = 22;
+           for (let i = startHour; i < endHour; i++) {
+             const isBooked = bookings.some(b => 
+                b.status?.toUpperCase() !== 'DIBATALKAN' && 
+                b.status?.toUpperCase() !== 'DITOLAK' &&
+                b.start_hour <= i && b.end_hour > i
+             );
+             slots.push({ hour: i, status: isBooked ? 'booked' : 'available' });
+           }
+           setTimeSlots(slots);
+           if (!searchTime) {
+             setStartHour('');
+             setEndHour('');
+           }
+        })
+        .catch(err => console.error(err));
     }
   }, [selectedField, bookingDate]);
 
@@ -730,7 +733,7 @@ export default function App() {
                       </h3>
 
                       <div className="mb-4">
-                        <label className="block text-xs font-bold text-gray-600 uppercase mb-1.5">1. Tanggal Main</label>
+                        <label className="block text-xs font-bold text-gray-600 mb-1.5">Tanggal main</label>
                         <div className="relative">
                           <Calendar className="absolute left-3.5 top-1/2 transform -translate-y-1/2 text-emerald-600 h-5 w-5" />
                           <input
@@ -744,7 +747,7 @@ export default function App() {
 
                       <div className="mb-6 flex gap-3">
                         <div className="flex-1">
-                          <label className="block text-xs font-bold text-gray-600 uppercase mb-1.5">2. Jam Mulai</label>
+                          <label className="block text-xs font-bold text-gray-600 mb-1.5">Jam mulai</label>
                           <select
                             className="w-full px-3 py-3 border-2 border-gray-200 rounded-xl bg-white font-bold text-gray-900 text-sm focus:ring-emerald-500 focus:border-emerald-500"
                             value={startHour}
@@ -753,12 +756,22 @@ export default function App() {
                             <option value="" disabled>Pilih</option>
                             {[...Array(14)].map((_, i) => {
                               const hour = i + 8;
-                              return <option key={hour} value={hour}>{String(hour).padStart(2, '0')}:00</option>
+                              const isBooked = timeSlots.find(s => s.hour === hour)?.status === 'booked';
+                              return (
+                                <option 
+                                  key={hour} 
+                                  value={hour} 
+                                  disabled={isBooked}
+                                  className={isBooked ? "text-gray-400 font-bold bg-gray-100" : "text-gray-900"}
+                                >
+                                  {String(hour).padStart(2, '0')}:00
+                                </option>
+                              );
                             })}
                           </select>
                         </div>
                         <div className="flex-1">
-                          <label className="block text-xs font-bold text-gray-600 uppercase mb-1.5">3. Jam Selesai</label>
+                          <label className="block text-xs font-bold text-gray-600 mb-1.5">Jam selesai</label>
                           <select
                             className="w-full px-3 py-3 border-2 border-gray-200 rounded-xl bg-white font-bold text-gray-900 text-sm focus:ring-emerald-500 focus:border-emerald-500 disabled:bg-gray-100"
                             value={endHour}
