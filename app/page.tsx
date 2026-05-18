@@ -1,9 +1,9 @@
 // @ts-nocheck
 "use client";
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Search, Calendar, Clock, Star, MapPin, Upload, 
-  User, LogOut, ArrowLeft, CheckCircle2, XCircle, ShieldCheck, 
+import {
+  Search, Calendar, Clock, Star, MapPin, Upload,
+  User, LogOut, ArrowLeft, CheckCircle2, XCircle, ShieldCheck,
   Image as ImageIcon, Home, FileText, CheckCircle, Clock3, XOctagon, AlertTriangle
 } from 'lucide-react';
 
@@ -12,12 +12,12 @@ import {
 // Helper to generate mock time slots
 const generateTimeSlots = (dateString, fieldId) => {
   const slots = [];
-  const startHour = 8; 
-  const endHour = 22; 
+  const startHour = 8;
+  const endHour = 22;
   const seed = (dateString?.length || 0) + fieldId;
 
   for (let i = startHour; i < endHour; i++) {
-    const isBooked = (i + seed) % 4 === 0; 
+    const isBooked = (i + seed) % 4 === 0;
     slots.push({ hour: i, status: isBooked ? 'booked' : 'available' });
   }
   return slots;
@@ -25,39 +25,56 @@ const generateTimeSlots = (dateString, fieldId) => {
 
 export default function App() {
   // --- APP STATE ---
-  const [currentView, setCurrentView] = useState('home'); 
+  const [currentView, setCurrentView] = useState('home');
   const [user, setUser] = useState(null);
-  
+
   // Home / Search State
   const [fields, setFields] = useState([]);
   const [allFields, setAllFields] = useState([]);
   const [isLoadingFields, setIsLoadingFields] = useState(true);
   const [searchName, setSearchName] = useState(''); // Diperbaiki: Variabel ini sebelumnya terhapus
-  const [searchDate, setSearchDate] = useState(new Date().toISOString().split('T')[0]); 
-  const [searchTime, setSearchTime] = useState(''); 
-  
+  const [searchDate, setSearchDate] = useState(new Date().toISOString().split('T')[0]);
+  const [searchTime, setSearchTime] = useState('');
+
   // Detail / Booking State
   const [selectedField, setSelectedField] = useState(null);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [bookingDate, setBookingDate] = useState(new Date().toISOString().split('T')[0]);
   const [timeSlots, setTimeSlots] = useState([]);
-  const sliderRef = useRef(null); 
-  
+  const sliderRef = useRef(null);
+
   // Pilih Jam
   const [startHour, setStartHour] = useState('');
   const [endHour, setEndHour] = useState('');
-  
+
   // Checkout & History State
   const [uploadedReceipt, setUploadedReceipt] = useState(false);
   const [uploadedFileName, setUploadedFileName] = useState('');
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [receiptPreviewUrl, setReceiptPreviewUrl] = useState('');
   const fileInputRef = useRef(null);
+  
+  // Copy States
+  const [copiedBCA, setCopiedBCA] = useState(false);
+  const [copiedEwallet, setCopiedEwallet] = useState(false);
+
+  const handleCopy = (text, type) => {
+    navigator.clipboard.writeText(text);
+    if (type === 'bca') {
+      setCopiedBCA(true);
+      setTimeout(() => setCopiedBCA(false), 2000);
+    } else {
+      setCopiedEwallet(true);
+      setTimeout(() => setCopiedEwallet(false), 2000);
+    }
+  };
 
   // Modal States
   const [confirmCancelId, setConfirmCancelId] = useState(null);
   const [ratingBooking, setRatingBooking] = useState(null);
   const [hoveredStar, setHoveredStar] = useState(0);
   const [selectedStar, setSelectedStar] = useState(0);
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
 
   // Mock Data History Pesanan 
   const [myBookings, setMyBookings] = useState([]);
@@ -108,9 +125,10 @@ export default function App() {
         .then(res => res.json())
         .then(data => {
           const adapted = data.map((b: any) => ({
-            id: b.booking_code || b.bookingCode,
+            id: b.id,
+            bookingCode: b.booking_code || b.bookingCode,
             fieldName: b.field_name,
-            date: b.booking_date,
+            date: new Date(b.booking_date).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
             time: `${b.start_hour}:00 - ${b.end_hour}:00`,
             price: Number(b.total_price),
             status: b.status.toLowerCase(),
@@ -131,10 +149,10 @@ export default function App() {
     const val = e.target.value;
     setSearchName(val);
     let filtered = allFields.filter((f: any) => f.name.toLowerCase().includes(val.toLowerCase()));
-    
+
     // Pertahankan filter jam jika sedang aktif
     if (searchTime) {
-       filtered = [...filtered].sort(() => Math.random() - 0.5); 
+      filtered = [...filtered].sort(() => Math.random() - 0.5);
     }
     setFields(filtered);
   };
@@ -147,7 +165,7 @@ export default function App() {
     // Logika Filter Jam (Bisa disesuaikan dengan koneksi database sungguhan)
     // Disini kita acak saja urutannya sebagai simulasi filter pencarian
     if (searchTime) {
-       filtered = [...filtered].sort(() => Math.random() - 0.5);
+      filtered = [...filtered].sort(() => Math.random() - 0.5);
     }
     setFields(filtered);
   };
@@ -203,7 +221,7 @@ export default function App() {
     if (startHour !== '') {
       const validEnds = getValidEndHours(Number(startHour));
       if (!validEnds.includes(Number(endHour))) {
-        setEndHour(validEnds[0]); 
+        setEndHour(validEnds[0]);
       }
     }
   }, [startHour]);
@@ -249,16 +267,17 @@ export default function App() {
   const handleFileUpload = (e: any) => {
     const file = e.target.files[0];
     if (file) {
-      setUploadedReceipt(true); 
+      setUploadedReceipt(true);
       setUploadedFileName(file.name);
       setReceiptFile(file);
+      setReceiptPreviewUrl(URL.createObjectURL(file));
     }
   };
 
   const submitCheckout = async () => {
     const duration = Number(endHour) - Number(startHour);
     const total = (duration * selectedField.price) + 5000;
-    
+
     let receiptUrl = '';
     if (receiptFile) {
       const ext = receiptFile.name.split('.').pop();
@@ -285,31 +304,37 @@ export default function App() {
         receiptImg: receiptUrl
       })
     })
-    .then(res => res.json())
-    .then(data => {
-      if(data.error) {
-        alert(data.error);
-        return;
-      }
-      fetchMyBookings();
-      setCurrentView('success');
-      setUploadedReceipt(false); 
-      setUploadedFileName('');
-      setReceiptFile(null);
-      window.scrollTo(0, 0);
-    })
-    .catch(err => console.error("Error creating booking", err));
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) {
+          alert(data.error);
+          return;
+        }
+        fetchMyBookings();
+        setCurrentView('success');
+        setUploadedReceipt(false);
+        setUploadedFileName('');
+        setReceiptFile(null);
+        setReceiptPreviewUrl('');
+        setIsPreviewModalOpen(false);
+        window.scrollTo(0, 0);
+      })
+      .catch(err => console.error("Error creating booking", err));
   };
 
   const confirmCancel = (id) => {
-    setMyBookings(myBookings.map(bkg => 
-      bkg.id === id ? { ...bkg, status: 'dibatalkan' } : bkg
-    ));
-    setConfirmCancelId(null);
+    fetch('/api/bookings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, status: 'DIBATALKAN' })
+    }).then(() => {
+      fetchMyBookings();
+      setConfirmCancelId(null);
+    }).catch(err => console.error("Error cancelling booking", err));
   };
 
   const submitRating = () => {
-    setMyBookings(myBookings.map(bkg => 
+    setMyBookings(myBookings.map(bkg =>
       bkg.id === ratingBooking.id ? { ...bkg, rated: true, rating: selectedStar } : bkg
     ));
     setRatingBooking(null);
@@ -331,12 +356,12 @@ export default function App() {
               Booking<span className="text-emerald-400">Lapang</span>
             </span>
           </div>
-          
+
           <div className="hidden sm:flex items-center space-x-8">
             <button onClick={() => setCurrentView('home')} className={`font-bold transition-colors ${currentView === 'home' ? 'text-emerald-400' : 'text-gray-300 hover:text-white'}`}>
               Sewa Lapang
             </button>
-            <button onClick={() => { if(!user) { setCurrentView('login'); } else { setCurrentView('my_bookings'); } }} className={`font-bold transition-colors ${currentView === 'my_bookings' ? 'text-emerald-400' : 'text-gray-300 hover:text-white'}`}>
+            <button onClick={() => { if (!user) { setCurrentView('login'); } else { setCurrentView('my_bookings'); } }} className={`font-bold transition-colors ${currentView === 'my_bookings' ? 'text-emerald-400' : 'text-gray-300 hover:text-white'}`}>
               Booking Lapang
             </button>
           </div>
@@ -345,7 +370,7 @@ export default function App() {
             {user ? (
               <div className="flex items-center space-x-3">
                 <span className="text-sm font-medium text-gray-200 hidden sm:block">Hai, {user.name.split(' ')[0]}</span>
-                <button onClick={() => {setUser(null); setCurrentView('home');}} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700" title="Keluar">
+                <button onClick={() => { setUser(null); setCurrentView('home'); }} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700" title="Keluar">
                   <LogOut className="h-4 w-4 sm:h-5 sm:w-5" />
                 </button>
               </div>
@@ -367,7 +392,7 @@ export default function App() {
         <div className="absolute top-0 right-0 -mr-8 -mt-8 opacity-10">
           <ShieldCheck className="w-48 h-48 text-white" />
         </div>
-        
+
         {/* Grup Pencarian Tanggal & Jam */}
         <div className="max-w-3xl mx-auto relative z-10 bg-white/10 backdrop-blur-md p-4 sm:p-6 rounded-3xl border border-white/20">
           <h2 className="text-white font-extrabold text-xl sm:text-2xl mb-4 text-center">Cari Jadwal Lapangan Kosong</h2>
@@ -376,19 +401,19 @@ export default function App() {
               <label className="block text-emerald-100 text-[10px] sm:text-xs font-bold uppercase mb-1 px-1">Pilih Tanggal</label>
               <div className="relative">
                 <Calendar className="absolute left-4 top-1/2 transform -translate-y-1/2 text-emerald-600 h-5 w-5 z-10" />
-                <input 
-                  type="date" 
+                <input
+                  type="date"
                   className="w-full pl-12 pr-4 py-3.5 text-sm sm:text-base border-0 rounded-2xl shadow-inner focus:ring-4 focus:ring-emerald-400/50 font-bold text-gray-800 bg-white"
                   value={searchDate} onChange={(e) => setSearchDate(e.target.value)}
                 />
               </div>
             </div>
-            
+
             <div className="relative flex-1">
               <label className="block text-emerald-100 text-[10px] sm:text-xs font-bold uppercase mb-1 px-1">Jam Main</label>
               <div className="relative">
                 <Clock className="absolute left-4 top-1/2 transform -translate-y-1/2 text-emerald-600 h-5 w-5 z-10" />
-                <select 
+                <select
                   className="w-full pl-12 pr-4 py-3.5 text-sm sm:text-base border-0 rounded-2xl shadow-inner focus:ring-4 focus:ring-emerald-400/50 font-bold text-gray-800 bg-white appearance-none"
                   value={searchTime} onChange={(e) => setSearchTime(e.target.value)}
                 >
@@ -411,15 +436,15 @@ export default function App() {
               </button>
             </div>
           </div>
-          
+
           {/* Tambahan Kolom Pencarian Nama Lapangan di bawah grup */}
           <div className="mt-4 relative">
             <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5 z-10" />
-            <input 
-              type="text" 
+            <input
+              type="text"
               placeholder="Ketik nama lapangan (Cth: Garuda, Champion)..."
               className="w-full pl-12 pr-4 py-3.5 text-sm sm:text-base border-0 rounded-2xl shadow-inner focus:ring-4 focus:ring-emerald-400/50 font-bold text-gray-800 bg-white"
-              value={searchName} 
+              value={searchName}
               onChange={handleSearchName}
             />
           </div>
@@ -429,7 +454,7 @@ export default function App() {
       <h2 className="text-lg sm:text-2xl font-extrabold text-gray-900 mb-4 sm:mb-6 flex items-center">
         <MapPin className="mr-2 text-emerald-500 w-5 h-5 sm:w-6 sm:h-6" /> Katalog Lapangan
       </h2>
-      
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-8">
         {isLoadingFields ? (
           <div className="col-span-full py-12 flex flex-col items-center justify-center">
@@ -466,7 +491,7 @@ export default function App() {
                   <p className="text-[10px] text-gray-500 font-medium">Tarif / Jam</p>
                   <p className="font-extrabold text-emerald-600 text-sm sm:text-base">Rp {field.price.toLocaleString('id-ID')}</p>
                 </div>
-                <button 
+                <button
                   onClick={() => openFieldDetail(field)}
                   disabled={field.status?.toLowerCase() !== 'aktif'}
                   className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold shadow-md transition-transform ${field.status?.toLowerCase() === 'aktif' ? 'bg-emerald-600 text-white active:scale-95 hover:bg-emerald-700' : 'bg-gray-300 text-gray-500 cursor-not-allowed shadow-none'}`}
@@ -484,7 +509,7 @@ export default function App() {
   const renderMyBookingsView = () => (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 animate-fade-in">
       <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 mb-6">Booking Lapang (Pesanan Saya)</h1>
-      
+
       {myBookings.length === 0 ? (
         <div className="bg-white rounded-3xl p-10 text-center shadow-sm border border-gray-100">
           <FileText className="w-16 h-16 text-gray-300 mx-auto mb-4" />
@@ -515,7 +540,7 @@ export default function App() {
               <div key={index} className={`bg-white rounded-2xl shadow-sm border p-4 sm:p-5 flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center ${bkg.status === 'dibatalkan' ? 'border-gray-200 opacity-60' : 'border-gray-100'}`}>
                 <div className="w-full sm:w-auto flex-1">
                   <div className="flex justify-between items-start mb-2 sm:mb-1">
-                    <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">{bkg.id}</p>
+                    <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">{bkg.bookingCode}</p>
                     <div className={`sm:hidden flex items-center px-2 py-1 rounded-full border text-[10px] font-bold ${statusColor}`}>
                       <StatusIcon className="w-3 h-3 mr-1" /> {statusText}
                     </div>
@@ -523,15 +548,15 @@ export default function App() {
                   <h3 className="font-extrabold text-gray-900 text-base sm:text-lg mb-1 leading-tight">{bkg.fieldName}</h3>
                   <div className="flex items-center text-xs sm:text-sm text-gray-600 font-medium">
                     <Calendar className="w-3.5 h-3.5 mr-1.5" />
-                    {new Date(bkg.date).toLocaleDateString('id-ID', {day: 'numeric', month: 'short', year: 'numeric'})}
+                    {bkg.date}
                     <span className="mx-2 text-gray-300">|</span>
                     <Clock className="w-3.5 h-3.5 mr-1.5" />
                     {bkg.time}
                   </div>
-                  
+
                   {/* Tombol Cancel (Khusus untuk status Menunggu) */}
                   {bkg.status === 'menunggu' && (
-                    <button 
+                    <button
                       onClick={() => setConfirmCancelId(bkg.id)}
                       className="mt-4 inline-flex items-center justify-center px-4 py-2 border-2 border-red-200 text-red-600 hover:bg-red-50 rounded-xl text-xs sm:text-sm font-bold transition-colors w-full sm:w-auto"
                     >
@@ -541,7 +566,7 @@ export default function App() {
 
                   {/* Tombol Beri Ulasan (Khusus untuk status Dikonfirmasi yang belum di-rate) */}
                   {bkg.status === 'dikonfirmasi' && !bkg.rated && (
-                    <button 
+                    <button
                       onClick={() => setRatingBooking(bkg)}
                       className="mt-4 inline-flex items-center justify-center px-4 py-2 border-2 border-yellow-300 text-yellow-700 bg-yellow-50 hover:bg-yellow-100 rounded-xl text-xs sm:text-sm font-bold transition-colors w-full sm:w-auto shadow-sm"
                     >
@@ -556,7 +581,7 @@ export default function App() {
                     </div>
                   )}
                 </div>
-                
+
                 <div className="flex flex-row sm:flex-col justify-between items-center sm:items-end w-full sm:w-auto mt-2 sm:mt-0 pt-3 sm:pt-0 border-t sm:border-0 border-gray-100">
                   <div className="text-left sm:text-right">
                     <p className="text-[10px] text-gray-500 font-medium hidden sm:block mb-0.5">Total Biaya</p>
@@ -576,16 +601,16 @@ export default function App() {
 
   const renderDetailView = () => {
     if (!selectedField) return null;
-    
+
     const availableStarts = timeSlots.filter(s => s.status === 'available');
     const validEnds = getValidEndHours(startHour !== '' ? Number(startHour) : '');
     const duration = (startHour !== '' && endHour !== '') ? (Number(endHour) - Number(startHour)) : 0;
     const totalFieldPrice = duration * selectedField.price;
 
     return (
-      <div className="pb-32 lg:pb-12 bg-white sm:bg-[#f8fafc]"> 
+      <div className="pb-32 lg:pb-12 bg-white sm:bg-[#f8fafc]">
         <div className="max-w-5xl mx-auto px-0 sm:px-6 lg:px-8 sm:py-6 animate-fade-in">
-          
+
           <div className="hidden sm:flex mb-4">
             <button onClick={() => setCurrentView('home')} className="flex items-center text-gray-600 hover:text-emerald-700 font-bold bg-white border border-gray-200 px-4 py-2 rounded-xl text-sm shadow-sm transition-colors">
               <ArrowLeft className="h-4 w-4 mr-2" /> Kembali
@@ -598,8 +623,8 @@ export default function App() {
               <button onClick={() => setCurrentView('home')} className="sm:hidden absolute top-4 left-4 z-20 bg-black/40 backdrop-blur-md text-white p-2 rounded-full border border-white/30">
                 <ArrowLeft className="h-5 w-5" />
               </button>
-              
-              <div 
+
+              <div
                 ref={sliderRef}
                 onScroll={handleScroll}
                 className="flex w-full h-full overflow-x-auto snap-x snap-mandatory scrollbar-hide scroll-smooth"
@@ -608,11 +633,11 @@ export default function App() {
                   <img key={idx} src={img} alt="Lapang" className="w-full h-full object-cover flex-shrink-0 snap-center" />
                 ))}
               </div>
-              
+
               <div className="absolute top-4 right-4 z-10 bg-black/60 text-white px-3 py-1 rounded-full text-xs font-medium backdrop-blur-sm pointer-events-none">
                 {currentImageIndex + 1} / {selectedField.images.length}
               </div>
-              
+
               <div className="absolute bottom-0 left-0 w-full bg-gradient-to-t from-black/90 to-transparent p-5 sm:p-8 pointer-events-none">
                 <div className="flex gap-2 mb-2">
                   <span className="bg-emerald-500 text-white px-3 py-1 rounded-full text-[10px] sm:text-xs font-bold inline-block">{selectedField.type}</span>
@@ -703,15 +728,15 @@ export default function App() {
                       <h3 className="font-extrabold text-lg sm:text-xl text-gray-900 mb-4 flex items-center">
                         <Clock className="w-5 h-5 text-emerald-600 mr-2" /> Booking Jadwal
                       </h3>
-                      
+
                       <div className="mb-4">
                         <label className="block text-xs font-bold text-gray-600 uppercase mb-1.5">1. Tanggal Main</label>
                         <div className="relative">
                           <Calendar className="absolute left-3.5 top-1/2 transform -translate-y-1/2 text-emerald-600 h-5 w-5" />
-                          <input 
-                            type="date" 
+                          <input
+                            type="date"
                             className="w-full pl-11 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-emerald-500 focus:border-emerald-500 bg-white font-bold text-gray-900 text-sm cursor-pointer"
-                            value={bookingDate} min={new Date().toISOString().split('T')[0]} 
+                            value={bookingDate} min={new Date().toISOString().split('T')[0]}
                             onChange={(e) => setBookingDate(e.target.value)}
                           />
                         </div>
@@ -720,7 +745,7 @@ export default function App() {
                       <div className="mb-6 flex gap-3">
                         <div className="flex-1">
                           <label className="block text-xs font-bold text-gray-600 uppercase mb-1.5">2. Jam Mulai</label>
-                          <select 
+                          <select
                             className="w-full px-3 py-3 border-2 border-gray-200 rounded-xl bg-white font-bold text-gray-900 text-sm focus:ring-emerald-500 focus:border-emerald-500"
                             value={startHour}
                             onChange={(e) => setStartHour(e.target.value)}
@@ -734,7 +759,7 @@ export default function App() {
                         </div>
                         <div className="flex-1">
                           <label className="block text-xs font-bold text-gray-600 uppercase mb-1.5">3. Jam Selesai</label>
-                          <select 
+                          <select
                             className="w-full px-3 py-3 border-2 border-gray-200 rounded-xl bg-white font-bold text-gray-900 text-sm focus:ring-emerald-500 focus:border-emerald-500 disabled:bg-gray-100"
                             value={endHour}
                             onChange={(e) => setEndHour(e.target.value)}
@@ -762,9 +787,8 @@ export default function App() {
                           </div>
                         )}
                         <button onClick={handleProceedToCheckout} disabled={duration <= 0}
-                          className={`w-full py-4 rounded-xl font-extrabold text-white text-base transition-all shadow-lg ${
-                            duration > 0 ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-gray-300 cursor-not-allowed shadow-none'
-                          }`}
+                          className={`w-full py-4 rounded-xl font-extrabold text-white text-base transition-all shadow-lg ${duration > 0 ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-gray-300 cursor-not-allowed shadow-none'
+                            }`}
                         >
                           Lanjut Pembayaran
                         </button>
@@ -791,9 +815,8 @@ export default function App() {
               </div>
             </div>
             <button onClick={handleProceedToCheckout} disabled={duration <= 0}
-              className={`w-full py-3.5 rounded-xl font-extrabold text-white text-sm transition-all shadow-lg ${
-                duration > 0 ? 'bg-emerald-600 active:bg-emerald-700' : 'bg-gray-300 cursor-not-allowed shadow-none'
-              }`}
+              className={`w-full py-3.5 rounded-xl font-extrabold text-white text-sm transition-all shadow-lg ${duration > 0 ? 'bg-emerald-600 active:bg-emerald-700' : 'bg-gray-300 cursor-not-allowed shadow-none'
+                }`}
             >
               Lanjut Pembayaran
             </button>
@@ -843,7 +866,7 @@ export default function App() {
     const totalFieldPrice = duration * (selectedField?.price || 0);
     const serviceFee = 5000;
     const finalTotal = totalFieldPrice + serviceFee;
-    const timeString = `${String(startHour).padStart(2,'0')}:00 - ${String(endHour).padStart(2,'0')}:00`;
+    const timeString = `${String(startHour).padStart(2, '0')}:00 - ${String(endHour).padStart(2, '0')}:00`;
 
     return (
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 animate-fade-in">
@@ -862,11 +885,11 @@ export default function App() {
               <div>
                 <p className="font-bold text-gray-900 text-sm leading-tight mb-1">{selectedField?.name}</p>
                 <div className="text-xs font-bold text-gray-600">
-                  <span className="text-emerald-600">{new Date(bookingDate).toLocaleDateString('id-ID', {day:'numeric', month:'short'})}</span> | {timeString}
+                  <span className="text-emerald-600">{new Date(bookingDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}</span> | {timeString}
                 </div>
               </div>
             </div>
-            
+
             <div className="space-y-3 pt-3 border-t border-gray-100">
               <div className="flex justify-between text-sm font-medium text-gray-600">
                 <span>Sewa Lapang ({duration} Jam)</span>
@@ -886,7 +909,7 @@ export default function App() {
           <div className="space-y-5">
             <div className="bg-white rounded-3xl shadow-sm p-5 border border-gray-100">
               <h2 className="text-base font-bold text-gray-800 mb-4">Metode Pembayaran (Transfer)</h2>
-              
+
               {/* Opsi E-Wallets dan Bank */}
               <div className="space-y-3">
                 <div className="bg-blue-50 rounded-xl p-4 border border-blue-100 flex justify-between items-center">
@@ -895,16 +918,20 @@ export default function App() {
                     <p className="font-mono text-lg font-extrabold text-blue-900 tracking-tight">123 456 7890</p>
                     <p className="text-xs font-medium text-blue-800 mt-1">PT Booking Lapang</p>
                   </div>
-                  <button className="text-blue-700 bg-blue-100 px-3 py-1.5 rounded-lg text-xs font-bold active:scale-95">Salin</button>
+                  <button onClick={() => handleCopy('1234567890', 'bca')} className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center transition-colors ${copiedBCA ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700 hover:bg-blue-200 active:scale-95'}`}>
+                    {copiedBCA ? <><CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Tersalin</> : 'Salin'}
+                  </button>
                 </div>
-                
+
                 <div className="bg-emerald-50 rounded-xl p-4 border border-emerald-100 flex justify-between items-center">
                   <div>
                     <p className="text-[10px] text-emerald-600 font-bold uppercase mb-1">GoPay / DANA / OVO</p>
                     <p className="font-mono text-lg font-extrabold text-emerald-900 tracking-tight">0812 3456 7890</p>
                     <p className="text-xs font-medium text-emerald-800 mt-1">Admin Lapangan</p>
                   </div>
-                  <button className="text-emerald-700 bg-emerald-100 px-3 py-1.5 rounded-lg text-xs font-bold active:scale-95">Salin</button>
+                  <button onClick={() => handleCopy('081234567890', 'ewallet')} className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center transition-colors ${copiedEwallet ? 'bg-emerald-200 text-emerald-800' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 active:scale-95'}`}>
+                    {copiedEwallet ? <><CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Tersalin</> : 'Salin'}
+                  </button>
                 </div>
               </div>
             </div>
@@ -912,14 +939,23 @@ export default function App() {
             <div className="bg-white rounded-3xl shadow-sm p-5 border border-gray-100">
               <h2 className="text-base font-bold text-gray-800 mb-3">Upload Bukti Transfer</h2>
               <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept="image/*" />
-              
+
               <div onClick={() => !uploadedReceipt && fileInputRef.current.click()} className={`border-2 border-dashed rounded-2xl p-6 text-center transition-colors ${uploadedReceipt ? 'border-emerald-500 bg-emerald-50' : 'border-gray-300 bg-gray-50 cursor-pointer hover:bg-gray-100'}`}>
                 {uploadedReceipt ? (
                   <div className="flex flex-col items-center">
-                    <CheckCircle2 className="h-10 w-10 text-emerald-500 mb-2" />
+                    {receiptPreviewUrl ? (
+                      <div className="relative mb-3 cursor-pointer group rounded-xl shadow-sm border border-emerald-200 overflow-hidden" onClick={(e) => { e.stopPropagation(); setIsPreviewModalOpen(true); }}>
+                        <img src={receiptPreviewUrl} alt="Preview" className="h-24 w-24 object-cover group-hover:scale-105 transition-transform" />
+                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
+                          <Search className="w-6 h-6 text-white" />
+                        </div>
+                      </div>
+                    ) : (
+                      <CheckCircle2 className="h-10 w-10 text-emerald-500 mb-2" />
+                    )}
                     <p className="font-bold text-emerald-900 text-sm">Bukti Terupload</p>
                     <p className="text-xs text-emerald-700 mt-1 truncate max-w-[200px]">{uploadedFileName}</p>
-                    <button onClick={(e) => { e.stopPropagation(); setUploadedReceipt(false); }} className="mt-3 text-xs text-red-500 font-bold bg-red-50 px-3 py-1.5 rounded-full hover:bg-red-100">Ganti File</button>
+                    <button onClick={(e) => { e.stopPropagation(); setUploadedReceipt(false); setReceiptPreviewUrl(''); }} className="mt-3 text-xs text-red-500 font-bold bg-red-50 px-3 py-1.5 rounded-full hover:bg-red-100">Ganti File</button>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center">
@@ -931,9 +967,8 @@ export default function App() {
               </div>
 
               <button onClick={submitCheckout} disabled={!uploadedReceipt}
-                className={`w-full mt-5 py-4 rounded-xl font-extrabold text-white text-base transition-all shadow-md ${
-                  uploadedReceipt ? 'bg-emerald-600 active:scale-95' : 'bg-gray-300'
-                }`}
+                className={`w-full mt-5 py-4 rounded-xl font-extrabold text-white text-base transition-all shadow-md ${uploadedReceipt ? 'bg-emerald-600 active:scale-95' : 'bg-gray-300'
+                  }`}
               >
                 Kirim Bukti Pembayaran
               </button>
@@ -970,13 +1005,13 @@ export default function App() {
           <span className="font-extrabold text-xl">Booking<span className="text-emerald-400">Lapang</span></span>
         </div>
         <p className="text-sm mb-6 max-w-sm">Platform penyewaan lapangan futsal & mini soccer terbaik.</p>
-        
+
         {/* Tombol Tautan WhatsApp */}
         <a href="https://wa.me/6281234567890" target="_blank" rel="noopener noreferrer" className="inline-flex items-center font-bold text-white bg-green-600 px-5 py-2.5 rounded-xl hover:bg-green-500 transition-colors shadow-lg shadow-green-900/20 active:scale-95">
           <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24"><path d="M12.031 21.974c-1.332 0-2.617-.354-3.76-.985l-4.185 1.1 1.12-4.08A9.974 9.974 0 0 1 2.05 12C2.05 6.486 6.536 2 12.031 2s9.98 4.486 9.98 9.98-4.485 10.015-9.98 10.015l-.01.004-.01-.025Zm-3.415-3.084c1.03.62 2.196.953 3.415.953 4.382 0 7.95-3.568 7.95-7.95s-3.568-7.95-7.95-7.95-7.95 3.568-7.95 7.95c0 1.346.335 2.59 1.004 3.654l-.696 2.535 2.607-.69-.005-.006c-.19-.084-.38-.173-.574-.265v.006Zm8.04-5.344c-.426-.214-2.52-1.246-2.91-1.388-.39-.144-.676-.214-.96.214-.285.428-1.1 1.388-1.348 1.674-.25.285-.498.32-.924.107-.426-.214-1.8-.665-3.43-2.12-.125-.107-.24-.225-.34-.356-1.157-1.464-1.28-1.928-1.28-2.677 0-1.035.785-1.5 1.07-1.785.285-.285.57-.285.76-.285.19 0 .38.035.57.07.19.036.427.07.665.607.238.536 1.046 2.535 1.14 2.713.095.18.143.393.048.607-.095.214-.143.357-.285.57-.143.215-.31.465-.428.57-.142.108-.295.23-.13.515.165.285.736 1.214 1.578 1.963.155.138.318.267.488.384.896.657 1.637.89 1.922 1.035.285.143.45.107.618-.07.166-.18 1.14-1.14 1.425-1.534.285-.393.57-.32.96-.18.39.144 2.47 1.178 2.896 1.393.427.214.712.32 1.004.814v.005c.002-.132.002-.32-.084-.666Z" /></svg>
           Hubungi Admin (WhatsApp)
         </a>
-        
+
         <div className="w-full mt-8 pt-4 border-t border-slate-800/50 text-[10px] sm:text-xs">
           &copy; {new Date().getFullYear()} Booking Lapang. All rights reserved.
         </div>
@@ -986,7 +1021,8 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#f8fafc] font-sans flex flex-col selection:bg-emerald-200 flex-grow">
-      <style dangerouslySetInnerHTML={{__html: `
+      <style dangerouslySetInnerHTML={{
+        __html: `
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
@@ -995,7 +1031,7 @@ export default function App() {
         button:not(:disabled) { cursor: pointer !important; }
         button:disabled { cursor: not-allowed !important; }
       `}} />
-      
+
       {renderNavbar()}
 
       <main className="flex-grow relative">
@@ -1036,11 +1072,11 @@ export default function App() {
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
           <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-sm w-full text-center shadow-2xl">
             <h3 className="text-xl font-extrabold text-gray-900 mb-2">Berikan Ulasan</h3>
-            <p className="text-sm text-gray-500 mb-6">Bagaimana pengalaman Anda bermain di <br/><strong className="text-gray-800">{ratingBooking.fieldName}</strong>?</p>
-            
+            <p className="text-sm text-gray-500 mb-6">Bagaimana pengalaman Anda bermain di <br /><strong className="text-gray-800">{ratingBooking.fieldName}</strong>?</p>
+
             <div className="flex justify-center gap-2 mb-8">
               {[1, 2, 3, 4, 5].map((star) => (
-                <button 
+                <button
                   key={star}
                   onMouseEnter={() => setHoveredStar(star)}
                   onMouseLeave={() => setHoveredStar(0)}
@@ -1053,7 +1089,7 @@ export default function App() {
             </div>
 
             <div className="flex gap-3">
-              <button onClick={() => {setRatingBooking(null); setSelectedStar(0);}} className="flex-1 py-3 rounded-xl font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors">
+              <button onClick={() => { setRatingBooking(null); setSelectedStar(0); }} className="flex-1 py-3 rounded-xl font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors">
                 Nanti Saja
               </button>
               <button onClick={submitRating} disabled={selectedStar === 0} className={`flex-1 py-3 rounded-xl font-bold text-white transition-colors shadow-md ${selectedStar > 0 ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20' : 'bg-gray-300 cursor-not-allowed'}`}>
@@ -1067,16 +1103,16 @@ export default function App() {
       {/* MOBILE BOTTOM NAVIGATION (Khusus Tampilan Menu Utama & History) */}
       {(currentView === 'home' || currentView === 'my_bookings') && (
         <div className="sm:hidden fixed bottom-0 left-0 w-full bg-white border-t border-gray-200 flex justify-around items-center pb-safe z-50 px-2 py-2 shadow-[0_-5px_15px_rgba(0,0,0,0.05)]">
-          <button 
-            onClick={() => setCurrentView('home')} 
+          <button
+            onClick={() => setCurrentView('home')}
             className={`flex flex-col items-center p-2 w-full transition-colors ${currentView === 'home' ? 'text-emerald-600' : 'text-gray-400'}`}
           >
             <Home className="w-6 h-6 mb-1" />
             <span className="text-[10px] font-extrabold">Sewa Lapang</span>
           </button>
-          
-          <button 
-            onClick={() => { if(!user) { setCurrentView('login'); } else { setCurrentView('my_bookings'); } }} 
+
+          <button
+            onClick={() => { if (!user) { setCurrentView('login'); } else { setCurrentView('my_bookings'); } }}
             className={`flex flex-col items-center p-2 w-full transition-colors ${currentView === 'my_bookings' ? 'text-emerald-600' : 'text-gray-400'}`}
           >
             <FileText className="w-6 h-6 mb-1" />
@@ -1090,6 +1126,29 @@ export default function App() {
           <div className={`px-4 py-3 rounded-xl shadow-lg border flex items-center ${toast.type === 'error' ? 'bg-red-50 border-red-200 text-red-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>
             {toast.type === 'error' ? <AlertTriangle className="w-5 h-5 mr-2" /> : <CheckCircle className="w-5 h-5 mr-2" />}
             <span className="font-bold text-sm">{toast.message}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Image Preview Modal */}
+      {isPreviewModalOpen && receiptPreviewUrl && (
+        <div
+          className="fixed inset-0 z-[250] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in"
+          onClick={() => setIsPreviewModalOpen(false)}
+        >
+          <div className="relative inline-flex flex-col items-center max-w-full">
+            <button
+              className="absolute -top-4 -right-4 sm:-top-5 sm:-right-5 z-10 bg-white hover:bg-gray-200 text-gray-900 rounded-full p-1.5 shadow-lg transition-colors"
+              onClick={() => setIsPreviewModalOpen(false)}
+            >
+              <XCircle className="w-6 h-6 sm:w-7 sm:h-7" />
+            </button>
+            <img
+              src={receiptPreviewUrl}
+              alt="Bukti Transfer Penuh"
+              className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            />
           </div>
         </div>
       )}

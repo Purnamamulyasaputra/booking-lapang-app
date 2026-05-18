@@ -47,7 +47,7 @@ export default function AdminPanel() {
           userName: b.customer_name,
           userPhone: b.customer_phone,
           fieldName: b.field_name,
-          date: b.booking_date,
+          date: new Date(b.booking_date).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
           time: `${b.start_hour}:00 - ${b.end_hour}:00`,
           duration: b.end_hour - b.start_hour,
           price: Number(b.total_price),
@@ -88,6 +88,7 @@ export default function AdminPanel() {
   // State Hapus Lapangan
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [fieldToDelete, setFieldToDelete] = useState(null);
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
 
   // State Tambah Lapangan
   const [isAddFieldOpen, setIsAddFieldOpen] = useState(false);
@@ -666,8 +667,14 @@ export default function AdminPanel() {
             {/* Kolom Kiri: Gambar */}
             <div className="w-full md:w-1/2 flex flex-col">
               <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Gambar Bukti Transfer</p>
-              <div className="bg-gray-100 rounded-2xl p-2 border border-gray-200 flex-1 min-h-[300px] flex items-center justify-center relative group">
-                <img src={selectedReceipt.receiptImg} alt="Bukti Transfer" className="max-w-full max-h-[400px] object-contain rounded-xl" />
+              <div 
+                className="bg-gray-100 rounded-2xl p-2 border border-gray-200 flex-1 h-[300px] md:h-[400px] flex items-center justify-center relative group overflow-hidden cursor-pointer"
+                onClick={() => setIsPreviewModalOpen(true)}
+              >
+                <img src={selectedReceipt.receiptImg} alt="Bukti Transfer" className="w-full h-full object-contain rounded-xl group-hover:scale-105 transition-transform" />
+                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40 rounded-2xl">
+                   <Search className="w-8 h-8 text-white" />
+                </div>
               </div>
             </div>
 
@@ -742,6 +749,29 @@ export default function AdminPanel() {
               </button>
             )}
           </div>
+
+          {/* Image Preview Modal Full Size */}
+          {isPreviewModalOpen && (
+            <div 
+              className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in"
+              onClick={() => setIsPreviewModalOpen(false)}
+            >
+              <div className="relative inline-flex flex-col items-center max-w-full">
+                <button 
+                  className="absolute -top-4 -right-4 sm:-top-5 sm:-right-5 z-10 bg-white hover:bg-gray-200 text-gray-900 rounded-full p-1.5 shadow-lg transition-colors"
+                  onClick={() => setIsPreviewModalOpen(false)}
+                >
+                  <X className="w-5 h-5 sm:w-6 sm:h-6" />
+                </button>
+                <img 
+                  src={selectedReceipt.receiptImg} 
+                  alt="Bukti Transfer Penuh" 
+                  className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl border-2 border-white/20" 
+                  onClick={(e) => e.stopPropagation()} 
+                />
+              </div>
+            </div>
+          )}
 
         </div>
       </div>
