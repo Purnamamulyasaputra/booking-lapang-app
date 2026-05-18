@@ -406,7 +406,7 @@ export default function App() {
                 <Calendar className="absolute left-4 top-1/2 transform -translate-y-1/2 text-emerald-600 h-5 w-5 z-10" />
                 <input
                   type="date"
-                  className="w-full pl-12 pr-4 py-3.5 text-sm sm:text-base border-0 rounded-2xl shadow-inner focus:ring-4 focus:ring-emerald-400/50 font-bold text-gray-800 bg-white"
+                  className="w-full pl-12 pr-4 py-3.5 text-sm sm:text-base border-0 rounded-2xl shadow-inner focus:ring-4 focus:ring-emerald-400/50 font-bold text-gray-800 bg-white cursor-pointer"
                   value={searchDate} onChange={(e) => setSearchDate(e.target.value)}
                 />
               </div>

@@ -5,13 +5,13 @@ import {
   LayoutDashboard, ClipboardList, CheckCircle, XCircle,
   Menu, X, LogOut, FileImage, DollarSign, Calendar as CalendarIcon,
   Clock, ShieldCheck, MapPin, User, Search, Filter,
-  Edit, Trash2, Plus, AlertTriangle, Save, Upload
+  Edit, Trash2, Plus, AlertTriangle, Save, Upload, FileText, TrendingUp
 } from 'lucide-react';
 
 
 
 export default function AdminPanel() {
-  const [activeTab, setActiveTab] = useState('dashboard'); // dashboard, bookings, fields
+  const [activeTab, setActiveTab] = useState('dashboard'); // dashboard, bookings, fields, reports
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [bookings, setBookings] = useState([]);
   const [filterStatus, setFilterStatus] = useState('semua');
@@ -101,6 +101,9 @@ export default function AdminPanel() {
   // State Jadwal Lapangan
   const [scheduleModalField, setScheduleModalField] = useState(null);
   const [scheduleDate, setScheduleDate] = useState(new Date().toISOString().split('T')[0]);
+
+  // State Laporan
+  const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0]);
 
   // State Tambah Lapangan
   const [isAddFieldOpen, setIsAddFieldOpen] = useState(false);
@@ -315,11 +318,16 @@ export default function AdminPanel() {
   };
 
   // --- DATA CALCULATIONS ---
-  const pendingCount = bookings.filter(b => b.status === 'menunggu').length;
-  const approvedCount = bookings.filter(b => b.status === 'dikonfirmasi').length;
-  const totalRevenue = bookings
+  const todayDateStr = currentTime.getFullYear() + '-' + String(currentTime.getMonth() + 1).padStart(2, '0') + '-' + String(currentTime.getDate()).padStart(2, '0');
+  const todaysBookings = bookings.filter(b => b.rawDate === todayDateStr);
+
+  const dashboardPendingCount = todaysBookings.filter(b => b.status === 'menunggu').length;
+  const dashboardApprovedCount = todaysBookings.filter(b => b.status === 'dikonfirmasi').length;
+  const dashboardTotalRevenue = todaysBookings
     .filter(b => b.status === 'dikonfirmasi')
     .reduce((acc, curr) => acc + curr.price, 0);
+
+  const totalPendingCount = bookings.filter(b => b.status === 'menunggu').length;
 
   const filteredBookings = bookings.filter(b => {
     if (filterStatus === 'semua') return true;
@@ -367,9 +375,9 @@ export default function AdminPanel() {
               >
                 <ClipboardList className="h-5 w-5 mr-3" />
                 Kelola Pesanan
-                {pendingCount > 0 && (
+                {totalPendingCount > 0 && (
                   <span className="ml-auto bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
-                    {pendingCount}
+                    {totalPendingCount}
                   </span>
                 )}
               </button>
@@ -380,6 +388,14 @@ export default function AdminPanel() {
                 className={`w-full flex items-center px-3 py-3 rounded-xl font-medium transition-colors ${activeTab === 'fields' ? 'bg-emerald-600 text-white' : 'hover:bg-slate-800 hover:text-white'}`}
               >
                 <MapPin className="h-5 w-5 mr-3" /> Daftar Lapangan
+              </button>
+            </li>
+            <li>
+              <button
+                onClick={() => { setActiveTab('reports'); closeSidebarMobile(); }}
+                className={`w-full flex items-center px-3 py-3 rounded-xl font-medium transition-colors ${activeTab === 'reports' ? 'bg-emerald-600 text-white' : 'hover:bg-slate-800 hover:text-white'}`}
+              >
+                <FileText className="h-5 w-5 mr-3" /> Laporan Harian
               </button>
             </li>
           </ul>
@@ -415,7 +431,7 @@ export default function AdminPanel() {
           </div>
           <div>
             <p className="text-sm font-bold text-gray-500 mb-1">Pesanan Menunggu</p>
-            <p className="text-2xl font-extrabold text-gray-900">{pendingCount}</p>
+            <p className="text-2xl font-extrabold text-gray-900">{dashboardPendingCount}</p>
           </div>
         </div>
 
@@ -425,7 +441,7 @@ export default function AdminPanel() {
           </div>
           <div>
             <p className="text-sm font-bold text-gray-500 mb-1">Pesanan Selesai</p>
-            <p className="text-2xl font-extrabold text-gray-900">{approvedCount}</p>
+            <p className="text-2xl font-extrabold text-gray-900">{dashboardApprovedCount}</p>
           </div>
         </div>
 
@@ -435,7 +451,7 @@ export default function AdminPanel() {
           </div>
           <div>
             <p className="text-sm font-bold text-gray-500 mb-1">Total Pendapatan</p>
-            <p className="text-2xl font-extrabold text-gray-900">Rp {totalRevenue.toLocaleString('id-ID')}</p>
+            <p className="text-2xl font-extrabold text-gray-900">Rp {dashboardTotalRevenue.toLocaleString('id-ID')}</p>
           </div>
         </div>
       </div>
@@ -1182,7 +1198,7 @@ export default function AdminPanel() {
             <label className="block text-xs font-bold text-gray-700 mb-2">Pilih Tanggal</label>
             <input 
               type="date" 
-              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-emerald-500 font-bold text-gray-900"
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-emerald-500 font-bold text-gray-900 cursor-pointer"
               value={scheduleDate}
               onChange={(e) => setScheduleDate(e.target.value)}
             />
@@ -1205,6 +1221,139 @@ export default function AdminPanel() {
                    </div>
                 </div>
              ))}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderReports = () => {
+    // Filter by selected report date
+    const reportBookings = bookings.filter(b => b.rawDate === reportDate);
+    
+    // Calculate metrics
+    const confirmedBookings = reportBookings.filter(b => b.status === 'dikonfirmasi');
+    const lostBookings = reportBookings.filter(b => b.status === 'dibatalkan' || b.status === 'ditolak');
+
+    const totalRevenue = confirmedBookings.reduce((sum, b) => sum + b.price, 0);
+    const lostRevenue = lostBookings.reduce((sum, b) => sum + b.price, 0);
+    const totalHours = confirmedBookings.reduce((sum, b) => sum + b.duration, 0);
+    const totalTransactions = confirmedBookings.length;
+
+    // Breakdown per field
+    const fieldBreakdown = fieldsData.map(field => {
+      const fieldBkgs = confirmedBookings.filter(b => b.fieldId === field.id);
+      const revenue = fieldBkgs.reduce((sum, b) => sum + b.price, 0);
+      const hours = fieldBkgs.reduce((sum, b) => sum + b.duration, 0);
+      return { name: field.name, revenue, hours, count: fieldBkgs.length };
+    });
+
+    return (
+      <div className="animate-fade-in">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+          <h1 className="text-2xl font-extrabold text-gray-900">Laporan Harian</h1>
+          <div className="flex bg-white items-center px-4 py-2 rounded-xl shadow-sm border border-gray-100">
+            <CalendarIcon className="w-5 h-5 text-emerald-600 mr-2" />
+            <input 
+              type="date"
+              value={reportDate}
+              onChange={(e) => setReportDate(e.target.value)}
+              className="font-bold text-gray-900 focus:outline-none cursor-pointer bg-transparent"
+            />
+          </div>
+        </div>
+
+        {/* Financial Summary */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+          <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-50 rounded-bl-[100px] -z-0"></div>
+            <p className="text-sm font-bold text-gray-500 mb-2 relative z-10">Total Pendapatan</p>
+            <p className="text-2xl font-extrabold text-emerald-600 relative z-10">Rp {totalRevenue.toLocaleString('id-ID')}</p>
+            <div className="mt-4 flex items-center text-xs font-bold text-emerald-600 bg-emerald-50 w-fit px-2 py-1 rounded-lg">
+              <TrendingUp className="w-3 h-3 mr-1" /> Sukses
+            </div>
+          </div>
+          
+          <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-blue-50 rounded-bl-[100px] -z-0"></div>
+            <p className="text-sm font-bold text-gray-500 mb-2 relative z-10">Total Jam Terjual</p>
+            <p className="text-2xl font-extrabold text-gray-900 relative z-10">{totalHours} Jam</p>
+            <div className="mt-4 flex items-center text-xs font-bold text-gray-500">
+              Dari {totalTransactions} Pesanan
+            </div>
+          </div>
+
+          <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-red-50 rounded-bl-[100px] -z-0"></div>
+            <p className="text-sm font-bold text-gray-500 mb-2 relative z-10">Potensi Kehilangan (Dibatalkan)</p>
+            <p className="text-2xl font-extrabold text-red-600 relative z-10">Rp {lostRevenue.toLocaleString('id-ID')}</p>
+            <div className="mt-4 flex items-center text-xs font-bold text-red-500 bg-red-50 w-fit px-2 py-1 rounded-lg">
+              {lostBookings.length} Pesanan Batal/Tolak
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Field Breakdown */}
+          <div className="lg:col-span-1 bg-white rounded-3xl shadow-sm border border-gray-100 p-6">
+            <h2 className="text-lg font-bold text-gray-900 mb-4">Rincian Per-Lapangan</h2>
+            <div className="space-y-4">
+              {fieldBreakdown.map((f, idx) => (
+                <div key={idx} className="p-4 rounded-xl border border-gray-100 bg-gray-50">
+                  <p className="font-bold text-gray-900 mb-1">{f.name}</p>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-gray-500">{f.hours} Jam Disewa</span>
+                    <span className="font-bold text-emerald-600">Rp {f.revenue.toLocaleString('id-ID')}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Transaction Log */}
+          <div className="lg:col-span-2 bg-white rounded-3xl shadow-sm border border-gray-100 p-6">
+             <div className="flex justify-between items-center mb-4">
+               <h2 className="text-lg font-bold text-gray-900">Log Transaksi (Dikonfirmasi)</h2>
+               <button onClick={() => window.print()} className="text-xs font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg transition-colors flex items-center">
+                 <FileText className="w-3.5 h-3.5 mr-1" /> Cetak Laporan
+               </button>
+             </div>
+             
+             {confirmedBookings.length === 0 ? (
+               <div className="text-center py-12 text-gray-400">
+                 <ClipboardList className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                 <p className="font-bold">Tidak ada transaksi terkonfirmasi di tanggal ini.</p>
+               </div>
+             ) : (
+               <div className="overflow-x-auto">
+                 <table className="w-full text-left text-sm">
+                   <thead>
+                     <tr className="border-b border-gray-100 text-gray-500">
+                       <th className="pb-3 font-bold">ID / Pelanggan</th>
+                       <th className="pb-3 font-bold">Lapangan</th>
+                       <th className="pb-3 font-bold">Waktu</th>
+                       <th className="pb-3 font-bold text-right">Nominal</th>
+                     </tr>
+                   </thead>
+                   <tbody className="divide-y divide-gray-50">
+                     {confirmedBookings.map(b => (
+                       <tr key={b.id}>
+                         <td className="py-3">
+                           <p className="font-bold text-gray-900">{b.bookingCode}</p>
+                           <p className="text-xs text-gray-500">{b.userName}</p>
+                         </td>
+                         <td className="py-3 font-medium text-gray-700">{b.fieldName}</td>
+                         <td className="py-3">
+                           <p className="font-medium text-gray-700">{b.time}</p>
+                           <p className="text-xs text-gray-500">{b.duration} Jam</p>
+                         </td>
+                         <td className="py-3 font-bold text-emerald-600 text-right">Rp {b.price.toLocaleString('id-ID')}</td>
+                       </tr>
+                     ))}
+                   </tbody>
+                 </table>
+               </div>
+             )}
           </div>
         </div>
       </div>
@@ -1261,6 +1410,7 @@ export default function AdminPanel() {
           {activeTab === 'dashboard' && renderDashboard()}
           {activeTab === 'bookings' && renderBookingsList()}
           {activeTab === 'fields' && renderFieldsList()}
+          {activeTab === 'reports' && renderReports()}
         </main>
       </div>
 
