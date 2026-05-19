@@ -7,11 +7,23 @@ import {
   Clock, ShieldCheck, MapPin, User, Search, Filter,
   Edit, Trash2, Plus, AlertTriangle, Save, Upload, FileText, TrendingUp
 } from 'lucide-react';
-
-
+import { useSession, signOut } from "next-auth/react";
+import { useRouter } from "next/navigation";
 
 export default function AdminPanel() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (status === "unauthenticated") {
+      router.push("/panel/login");
+    } else if (status === "authenticated" && session?.user?.type !== "admin") {
+      router.push("/");
+    }
+  }, [status, session, router]);
+
   const [activeTab, setActiveTab] = useState('dashboard'); // dashboard, bookings, fields, reports
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [bookings, setBookings] = useState([]);
   const [filterStatus, setFilterStatus] = useState('semua');
@@ -38,9 +50,13 @@ export default function AdminPanel() {
   const [fieldsData, setFieldsData] = useState([]);
 
   const fetchData = () => {
-    fetch('/api/bookings')
+    const adminId = session?.user?.id;
+    if (!adminId) return;
+
+    fetch(`/api/bookings?adminId=${adminId}`)
       .then(res => res.json())
       .then(data => {
+        if (!Array.isArray(data)) return;
         const adapted = data.map((b: any) => {
           const dateObj = new Date(b.booking_date);
           const localRawDate = dateObj.getFullYear() + '-' + String(dateObj.getMonth() + 1).padStart(2, '0') + '-' + String(dateObj.getDate()).padStart(2, '0');
@@ -65,11 +81,13 @@ export default function AdminPanel() {
           };
         });
         setBookings(adapted);
-      });
+      })
+      .catch(err => console.error('Error fetching bookings:', err));
 
-    fetch('/api/fields')
+    fetch(`/api/fields?adminId=${adminId}`)
       .then(res => res.json())
       .then(data => {
+        if (!Array.isArray(data)) return;
         const adapted = data.map((f: any) => ({
           id: f.id,
           name: f.name,
@@ -82,12 +100,13 @@ export default function AdminPanel() {
           images: f.images || []
         }));
         setFieldsData(adapted);
-      });
+      })
+      .catch(err => console.error('Error fetching fields:', err));
   };
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (session?.user?.id) fetchData();
+  }, [session]);
 
   // State Edit Lapangan
   const [isEditFieldOpen, setIsEditFieldOpen] = useState(false);
@@ -104,6 +123,7 @@ export default function AdminPanel() {
 
   // State Laporan
   const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0]);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
 
   // State Tambah Lapangan
   const [isAddFieldOpen, setIsAddFieldOpen] = useState(false);
@@ -250,7 +270,7 @@ export default function AdminPanel() {
     fetch('/api/fields', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(fieldToAdd)
+      body: JSON.stringify({ ...fieldToAdd, adminId: session?.user?.id })
     }).then(() => {
       fetchData();
       setIsAddFieldOpen(false);
@@ -281,7 +301,7 @@ export default function AdminPanel() {
     fetch('/api/fields', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(fieldToEdit)
+      body: JSON.stringify({ ...fieldToEdit, adminId: session?.user?.id })
     }).then(() => {
       fetchData();
       setIsEditFieldOpen(false);
@@ -299,7 +319,7 @@ export default function AdminPanel() {
     fetch('/api/fields', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: fieldToDelete })
+      body: JSON.stringify({ id: fieldToDelete, adminId: session?.user?.id })
     }).then(res => {
       if (res.ok) {
         fetchData();
@@ -335,10 +355,20 @@ export default function AdminPanel() {
   });
 
   // --- RENDERERS ---
-  const renderSidebar = () => (
-    <>
-      {isSidebarOpen && (
-        <div
+  const renderSidebar = () => {
+    const adminName = session?.user?.name || "Admin Utama";
+    const adminEmail = session?.user?.email || "admin@bookinglapang.com";
+    const adminInitials = adminName
+      .split(" ")
+      .map((n: string) => n[0])
+      .join("")
+      .substring(0, 2)
+      .toUpperCase();
+
+    return (
+      <>
+        {isSidebarOpen && (
+          <div
           className="fixed inset-0 bg-black/50 z-40 lg:hidden"
           onClick={() => setIsSidebarOpen(false)}
         />
@@ -404,20 +434,20 @@ export default function AdminPanel() {
         <div className="p-4 border-t border-slate-800">
           <div className="flex items-center mb-4 px-2">
             <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold mr-3">
-              AD
+              {adminInitials}
             </div>
-            <div>
-              <p className="text-sm font-bold text-white">Admin Utama</p>
-              <p className="text-xs text-slate-400">admin@bookinglapang.com</p>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-white truncate">{adminName}</p>
+              <p className="text-xs text-slate-400 truncate">{adminEmail}</p>
             </div>
           </div>
-          <button onClick={() => window.location.href = '/'} className="w-full flex items-center justify-center px-4 py-2 text-sm font-bold text-gray-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors">
-            <LogOut className="h-4 w-4 mr-2" /> Kembali ke Home
+          <button onClick={() => setShowLogoutConfirm(true)} className="w-full flex items-center px-3 py-3 rounded-xl font-medium text-gray-400 hover:text-white hover:bg-slate-800 transition-colors">
+            <LogOut className="h-5 w-5 mr-3" /> Keluar (Logout)
           </button>
         </div>
       </aside>
     </>
-  );
+  );};
 
   const renderDashboard = () => (
     <div className="animate-fade-in">
@@ -697,13 +727,13 @@ export default function AdminPanel() {
             {/* Kolom Kiri: Gambar */}
             <div className="w-full md:w-1/2 flex flex-col">
               <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Gambar Bukti Transfer</p>
-              <div 
+              <div
                 className="bg-gray-100 rounded-2xl p-2 border border-gray-200 flex-1 h-[300px] md:h-[400px] flex items-center justify-center relative group overflow-hidden cursor-pointer"
                 onClick={() => setIsPreviewModalOpen(true)}
               >
                 <img src={selectedReceipt.receiptImg} alt="Bukti Transfer" className="w-full h-full object-contain rounded-xl group-hover:scale-105 transition-transform" />
                 <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40 rounded-2xl">
-                   <Search className="w-8 h-8 text-white" />
+                  <Search className="w-8 h-8 text-white" />
                 </div>
               </div>
             </div>
@@ -782,22 +812,22 @@ export default function AdminPanel() {
 
           {/* Image Preview Modal Full Size */}
           {isPreviewModalOpen && (
-            <div 
+            <div
               className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in"
               onClick={() => setIsPreviewModalOpen(false)}
             >
               <div className="relative inline-flex flex-col items-center max-w-full">
-                <button 
+                <button
                   className="absolute -top-4 -right-4 sm:-top-5 sm:-right-5 z-10 bg-white hover:bg-gray-200 text-gray-900 rounded-full p-1.5 shadow-lg transition-colors"
                   onClick={() => setIsPreviewModalOpen(false)}
                 >
                   <X className="w-5 h-5 sm:w-6 sm:h-6" />
                 </button>
-                <img 
-                  src={selectedReceipt.receiptImg} 
-                  alt="Bukti Transfer Penuh" 
-                  className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl border-2 border-white/20" 
-                  onClick={(e) => e.stopPropagation()} 
+                <img
+                  src={selectedReceipt.receiptImg}
+                  alt="Bukti Transfer Penuh"
+                  className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl border-2 border-white/20"
+                  onClick={(e) => e.stopPropagation()}
                 />
               </div>
             </div>
@@ -1172,17 +1202,17 @@ export default function AdminPanel() {
   // Modal Jadwal Lapangan
   const renderScheduleModal = () => {
     if (!scheduleModalField) return null;
-    const fieldBookings = bookings.filter(b => 
-      b.fieldId === scheduleModalField.id && 
-      b.rawDate.startsWith(scheduleDate) && 
+    const fieldBookings = bookings.filter(b =>
+      b.fieldId === scheduleModalField.id &&
+      b.rawDate.startsWith(scheduleDate) &&
       b.status !== 'dibatalkan' && b.status !== 'ditolak'
     );
-    
+
     // Generate hours 08:00 - 22:00
     const hours = [];
-    for(let i=8; i<22; i++) {
-       const booking = fieldBookings.find(b => b.startHour <= i && b.endHour > i);
-       hours.push({ hour: i, booking });
+    for (let i = 8; i < 22; i++) {
+      const booking = fieldBookings.find(b => b.startHour <= i && b.endHour > i);
+      hours.push({ hour: i, booking });
     }
 
     return (
@@ -1196,31 +1226,31 @@ export default function AdminPanel() {
           </div>
           <div className="p-5 border-b border-gray-100">
             <label className="block text-xs font-bold text-gray-700 mb-2">Pilih Tanggal</label>
-            <input 
-              type="date" 
+            <input
+              type="date"
               className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-emerald-500 font-bold text-gray-900 cursor-pointer"
               value={scheduleDate}
               onChange={(e) => setScheduleDate(e.target.value)}
             />
           </div>
           <div className="p-5 overflow-y-auto flex-1 space-y-3">
-             {hours.map(slot => (
-                <div key={slot.hour} className={`p-4 rounded-xl border flex justify-between items-center ${slot.booking ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-gray-200'}`}>
-                   <div className="font-bold text-gray-700 w-16">{String(slot.hour).padStart(2, '0')}:00</div>
-                   <div className="flex-1 px-4">
-                     {slot.booking ? (
-                        <div>
-                          <p className="text-sm font-extrabold text-emerald-800">{slot.booking.userName} <span className="font-medium text-emerald-600 ml-2">({slot.booking.userPhone})</span></p>
-                          <div className={`mt-1 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${slot.booking.status === 'dikonfirmasi' ? 'bg-emerald-600 text-white' : 'bg-yellow-400 text-yellow-900'}`}>
-                            {slot.booking.status.toUpperCase()}
-                          </div>
-                        </div>
-                     ) : (
-                        <p className="text-sm font-medium text-gray-400">Kosong</p>
-                     )}
-                   </div>
+            {hours.map(slot => (
+              <div key={slot.hour} className={`p-4 rounded-xl border flex justify-between items-center ${slot.booking ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-gray-200'}`}>
+                <div className="font-bold text-gray-700 w-16">{String(slot.hour).padStart(2, '0')}:00</div>
+                <div className="flex-1 px-4">
+                  {slot.booking ? (
+                    <div>
+                      <p className="text-sm font-extrabold text-emerald-800">{slot.booking.userName} <span className="font-medium text-emerald-600 ml-2">({slot.booking.userPhone})</span></p>
+                      <div className={`mt-1 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${slot.booking.status === 'dikonfirmasi' ? 'bg-emerald-600 text-white' : 'bg-yellow-400 text-yellow-900'}`}>
+                        {slot.booking.status.toUpperCase()}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm font-medium text-gray-400">Kosong</p>
+                  )}
                 </div>
-             ))}
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -1230,7 +1260,7 @@ export default function AdminPanel() {
   const renderReports = () => {
     // Filter by selected report date
     const reportBookings = bookings.filter(b => b.rawDate === reportDate);
-    
+
     // Calculate metrics
     const confirmedBookings = reportBookings.filter(b => b.status === 'dikonfirmasi');
     const lostBookings = reportBookings.filter(b => b.status === 'dibatalkan' || b.status === 'ditolak');
@@ -1254,7 +1284,7 @@ export default function AdminPanel() {
           <h1 className="text-2xl font-extrabold text-gray-900">Laporan Harian</h1>
           <div className="flex bg-white items-center px-4 py-2 rounded-xl shadow-sm border border-gray-100">
             <CalendarIcon className="w-5 h-5 text-emerald-600 mr-2" />
-            <input 
+            <input
               type="date"
               value={reportDate}
               onChange={(e) => setReportDate(e.target.value)}
@@ -1273,7 +1303,7 @@ export default function AdminPanel() {
               <TrendingUp className="w-3 h-3 mr-1" /> Sukses
             </div>
           </div>
-          
+
           <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-24 h-24 bg-blue-50 rounded-bl-[100px] -z-0"></div>
             <p className="text-sm font-bold text-gray-500 mb-2 relative z-10">Total Jam Terjual</p>
@@ -1312,60 +1342,171 @@ export default function AdminPanel() {
 
           {/* Transaction Log */}
           <div className="lg:col-span-2 bg-white rounded-3xl shadow-sm border border-gray-100 p-6">
-             <div className="flex justify-between items-center mb-4">
-               <h2 className="text-lg font-bold text-gray-900">Log Transaksi (Dikonfirmasi)</h2>
-               <button onClick={() => window.print()} className="text-xs font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg transition-colors flex items-center">
-                 <FileText className="w-3.5 h-3.5 mr-1" /> Cetak Laporan
-               </button>
-             </div>
-             
-             {confirmedBookings.length === 0 ? (
-               <div className="text-center py-12 text-gray-400">
-                 <ClipboardList className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                 <p className="font-bold">Tidak ada transaksi terkonfirmasi di tanggal ini.</p>
-               </div>
-             ) : (
-               <div className="overflow-x-auto">
-                 <table className="w-full text-left text-sm">
-                   <thead>
-                     <tr className="border-b border-gray-100 text-gray-500">
-                       <th className="pb-3 font-bold">ID / Pelanggan</th>
-                       <th className="pb-3 font-bold">Lapangan</th>
-                       <th className="pb-3 font-bold">Waktu</th>
-                       <th className="pb-3 font-bold text-right">Nominal</th>
-                     </tr>
-                   </thead>
-                   <tbody className="divide-y divide-gray-50">
-                     {confirmedBookings.map(b => (
-                       <tr key={b.id}>
-                         <td className="py-3">
-                           <p className="font-bold text-gray-900">{b.bookingCode}</p>
-                           <p className="text-xs text-gray-500">{b.userName}</p>
-                         </td>
-                         <td className="py-3 font-medium text-gray-700">{b.fieldName}</td>
-                         <td className="py-3">
-                           <p className="font-medium text-gray-700">{b.time}</p>
-                           <p className="text-xs text-gray-500">{b.duration} Jam</p>
-                         </td>
-                         <td className="py-3 font-bold text-emerald-600 text-right">Rp {b.price.toLocaleString('id-ID')}</td>
-                       </tr>
-                     ))}
-                   </tbody>
-                 </table>
-               </div>
-             )}
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-bold text-gray-900">Log Transaksi (Dikonfirmasi)</h2>
+              <button 
+                disabled={isDownloadingPdf}
+                onClick={async () => {
+                  try {
+                    setIsDownloadingPdf(true);
+                    
+                    // 1. Load html2pdf dynamically if not already present
+                    if (!window.html2pdf) {
+                      await new Promise((resolve, reject) => {
+                        const script = document.createElement('script');
+                        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+                        script.onload = resolve;
+                        script.onerror = reject;
+                        document.body.appendChild(script);
+                      });
+                    }
+
+                    const dateLabel = new Date(reportDate).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+                    const rows = confirmedBookings.map(b => `
+                      <tr style="border-bottom: 1px solid #e2e8f0;">
+                        <td style="padding: 8px 10px; font-weight: bold; color: #1e293b;">${b.bookingCode}</td>
+                        <td style="padding: 8px 10px; color: #334155;">${b.userName}<br/><small style="color: #64748b; font-size: 11px;">${b.userPhone || '-'}</small></td>
+                        <td style="padding: 8px 10px; color: #334155;">${b.fieldName}</td>
+                        <td style="padding: 8px 10px; color: #334155;">${b.time} (${b.duration} Jam)</td>
+                        <td style="padding: 8px 10px; text-align: right; font-weight: bold; color: #059669;">Rp ${b.price.toLocaleString('id-ID')}</td>
+                      </tr>`).join('');
+
+                    const container = document.createElement('div');
+                    container.innerHTML = `
+                      <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 32px; color: #1e293b; background: white;">
+                        <div style="border-bottom: 2px solid #10b981; padding-bottom: 16px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: flex-end;">
+                          <div>
+                            <h1 style="font-size: 24px; font-weight: 800; margin: 0 0 6px 0; color: #0f172a; tracking: -0.5px;">Laporan Harian Booking Lapangan</h1>
+                            <p style="color: #64748b; margin: 0; font-size: 13px; font-weight: 500;">Tanggal Laporan: <strong style="color: #0f172a;">${dateLabel}</strong></p>
+                          </div>
+                          <div style="text-align: right;">
+                            <p style="color: #64748b; margin: 0; font-size: 11px;">Dicetak pada: ${new Date().toLocaleString('id-ID')}</p>
+                          </div>
+                        </div>
+
+                        <!-- Summary Cards -->
+                        <div style="display: flex; gap: 16px; margin-bottom: 28px;">
+                          <div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; flex: 1; background: #f8fafc;">
+                            <div style="font-size: 11px; color: #64748b; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">Total Pendapatan</div>
+                            <div style="font-size: 20px; font-weight: 800; margin-top: 6px; color: #059669;">Rp ${totalRevenue.toLocaleString('id-ID')}</div>
+                          </div>
+                          <div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; flex: 1; background: #f8fafc;">
+                            <div style="font-size: 11px; color: #64748b; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">Total Transaksi</div>
+                            <div style="font-size: 20px; font-weight: 800; margin-top: 6px; color: #0f172a;">${totalTransactions} Pesanan</div>
+                          </div>
+                          <div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; flex: 1; background: #f8fafc;">
+                            <div style="font-size: 11px; color: #64748b; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">Total Jam Terjual</div>
+                            <div style="font-size: 20px; font-weight: 800; margin-top: 6px; color: #2563eb;">${totalHours} Jam</div>
+                          </div>
+                        </div>
+
+                        <!-- Transaction Table -->
+                        <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                          <thead>
+                            <tr style="background: #f0fdf4; border-bottom: 2px solid #10b981;">
+                              <th style="padding: 10px; text-align: left; font-weight: 700; color: #065f46; font-size: 12px;">Kode Booking</th>
+                              <th style="padding: 10px; text-align: left; font-weight: 700; color: #065f46; font-size: 12px;">Pelanggan</th>
+                              <th style="padding: 10px; text-align: left; font-weight: 700; color: #065f46; font-size: 12px;">Lapangan</th>
+                              <th style="padding: 10px; text-align: left; font-weight: 700; color: #065f46; font-size: 12px;">Waktu</th>
+                              <th style="padding: 10px; text-align: right; font-weight: 700; color: #065f46; font-size: 12px;">Nominal</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            ${rows}
+                          </tbody>
+                          <tfoot>
+                            <tr style="font-weight: bold; background: #f8fafc; border-top: 2px solid #e2e8f0;">
+                              <td colspan="4" style="padding: 12px 10px; text-align: right; font-size: 13px; color: #0f172a;">Grand Total</td>
+                              <td style="padding: 12px 10px; text-align: right; font-size: 14px; color: #059669; font-weight: 800;">Rp ${totalRevenue.toLocaleString('id-ID')}</td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    `;
+
+                    const opt = {
+                      margin:       10,
+                      filename:     `Laporan-Harian-${reportDate}.pdf`,
+                      image:        { type: 'jpeg', quality: 0.98 },
+                      html2canvas:  { scale: 2, useCORS: true, logging: false },
+                      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                    };
+
+                    await window.html2pdf().from(container).set(opt).save();
+                  } catch (err) {
+                    console.error("Gagal mengunduh PDF:", err);
+                    alert("Gagal mengunduh PDF. Silakan coba lagi.");
+                  } finally {
+                    setIsDownloadingPdf(false);
+                  }
+                }} 
+                className="text-xs font-bold bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white px-3 py-1.5 rounded-lg transition-colors flex items-center shadow-sm cursor-pointer"
+              >
+                {isDownloadingPdf ? (
+                  <>
+                    <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1.5"></div>
+                    Mengunduh...
+                  </>
+                ) : (
+                  <>
+                    <FileText className="w-3.5 h-3.5 mr-1" /> Unduh PDF
+                  </>
+                )}
+              </button>
+            </div>
+
+            {confirmedBookings.length === 0 ? (
+              <div className="text-center py-12 text-gray-400">
+                <ClipboardList className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                <p className="font-bold">Tidak ada transaksi terkonfirmasi di tanggal ini.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-100 text-gray-500">
+                      <th className="pb-3 font-bold">ID / Pelanggan</th>
+                      <th className="pb-3 font-bold">Lapangan</th>
+                      <th className="pb-3 font-bold">Waktu</th>
+                      <th className="pb-3 font-bold text-right">Nominal</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {confirmedBookings.map(b => (
+                      <tr key={b.id}>
+                        <td className="py-3">
+                          <p className="font-bold text-gray-900">{b.bookingCode}</p>
+                          <p className="text-xs text-gray-500">{b.userName}</p>
+                        </td>
+                        <td className="py-3 font-medium text-gray-700">{b.fieldName}</td>
+                        <td className="py-3">
+                          <p className="font-medium text-gray-700">{b.time}</p>
+                          <p className="text-xs text-gray-500">{b.duration} Jam</p>
+                        </td>
+                        <td className="py-3 font-bold text-emerald-600 text-right">Rp {b.price.toLocaleString('id-ID')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       </div>
     );
   };
+  if (status === "loading" || !session || session.user.type !== "admin") {
+    return <div className="flex h-screen items-center justify-center bg-[#0f172a]"><div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div></div>;
+  }
 
   return (
     <div className="flex h-screen bg-[#f8fafc] font-sans selection:bg-emerald-200">
       <style dangerouslySetInnerHTML={{
         __html: `
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes scaleUp { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
         .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+        .animate-scale-up { animation: scaleUp 0.15s ease-out forwards; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
         button:not(:disabled) { cursor: pointer !important; }
@@ -1427,6 +1568,33 @@ export default function AdminPanel() {
           <div className={`px-4 py-3 rounded-xl shadow-lg border flex items-center ${toast.type === 'error' ? 'bg-red-50 border-red-200 text-red-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>
             {toast.type === 'error' ? <AlertTriangle className="w-5 h-5 mr-2" /> : <CheckCircle className="w-5 h-5 mr-2" />}
             <span className="font-bold text-sm">{toast.message}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Logout Confirmation Modal */}
+      {showLogoutConfirm && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-sm w-full p-6 shadow-2xl animate-scale-up text-center">
+            <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/20 text-red-500">
+              <LogOut className="h-8 w-8 animate-pulse" />
+            </div>
+            <h3 className="text-xl font-extrabold text-white mb-2">Konfirmasi Keluar</h3>
+            <p className="text-sm text-slate-400 mb-6 font-medium">Apakah Anda yakin ingin keluar dari panel admin?</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowLogoutConfirm(false)}
+                className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 rounded-xl transition-colors cursor-pointer text-sm"
+              >
+                Batal
+              </button>
+              <button
+                onClick={() => signOut({ callbackUrl: '/panel/login' })}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl transition-colors cursor-pointer text-sm"
+              >
+                Ya, Keluar
+              </button>
+            </div>
           </div>
         </div>
       )}

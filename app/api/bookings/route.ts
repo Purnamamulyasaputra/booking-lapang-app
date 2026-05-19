@@ -4,6 +4,7 @@ import { pool } from "@/lib/db";
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const customerId = searchParams.get("customerId");
+  const adminId = searchParams.get("adminId");
 
   try {
     let query = `
@@ -15,27 +16,35 @@ export async function GET(req: Request) {
     const values: any[] = [];
 
     if (customerId) {
-      query += ` WHERE b.customer_id = $1`;
+      query += ` WHERE b.customer_id = $${values.length + 1}`;
       values.push(customerId);
     }
-    
+
+    // Filter bookings by admin's fields only
+    if (adminId) {
+      if (values.length > 0) query += ` AND`;
+      else query += ` WHERE`;
+      query += ` f.admin_id = $${values.length + 1}`;
+      values.push(adminId);
+    }
+
     const fieldId = searchParams.get("fieldId");
     const date = searchParams.get("date");
-    
+
     if (fieldId) {
       if (values.length > 0) query += ` AND`;
       else query += ` WHERE`;
       values.push(fieldId);
       query += ` b.field_id = $${values.length}`;
     }
-    
+
     if (date) {
       if (values.length > 0) query += ` AND`;
       else query += ` WHERE`;
       values.push(date);
       query += ` b.booking_date = $${values.length}`;
     }
-    
+
     query += ` ORDER BY b.created_at DESC`;
 
     const result = await pool.query(query, values);
@@ -60,37 +69,28 @@ export async function POST(req: Request) {
       receiptImg
     } = body;
 
-    // Check overlap
-    const checkResult = await pool.query(
+    // Check for overlapping bookings
+    const overlapCheck = await pool.query(
       `SELECT id FROM bookings 
-       WHERE field_id = $1 AND booking_date = $2 
-       AND status != 'DIBATALKAN' AND status != 'DITOLAK'
-       AND (
-         (start_hour < $4 AND end_hour > $3)
-       )`,
+       WHERE field_id = $1 
+         AND DATE(booking_date) = DATE($2::date)
+         AND status NOT IN ('DIBATALKAN', 'DITOLAK')
+         AND (
+           (start_hour < $4 AND end_hour > $3)
+         )`,
       [fieldId, bookingDate, startHour, endHour]
     );
 
-    if (checkResult.rows.length > 0) {
-      return NextResponse.json(
-        { error: "Waktu tersebut sudah di-booking." },
-        { status: 400 }
-      );
+    if (overlapCheck.rowCount > 0) {
+      return NextResponse.json({ error: "Waktu tersebut sudah di-booking oleh orang lain." }, { status: 409 });
     }
 
-    const bookingCode = `BKG-${Math.floor(Math.random() * 1000000)}`;
+    const bookingCode = `BK-${Date.now().toString().slice(-6)}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     const result = await pool.query(
-      `INSERT INTO bookings (booking_code, customer_id, field_id, booking_date, start_hour, end_hour, total_price, status, receipt_img) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'MENUNGGU', $8) RETURNING *`,
+      `INSERT INTO bookings (booking_code, customer_id, field_id, booking_date, start_hour, end_hour, total_price, receipt_img, status)
+       VALUES ($1, $2, $3, $4::date, $5, $6, $7, $8, 'MENUNGGU') RETURNING *`,
       [bookingCode, customerId, fieldId, bookingDate, startHour, endHour, totalPrice, receiptImg || null]
-    );
-
-    // Simulated auth: Add to payment_logs too for mock flow
-    await pool.query(
-      `INSERT INTO payment_logs (booking_id, invoice_code, amount, status, log_message) 
-       VALUES ($1, $2, $3, 'PENDING', 'Menunggu pembayaran via ' || $4)`,
-      [result.rows[0].id, `INV-${bookingCode}`, totalPrice, paymentMethod]
     );
 
     return NextResponse.json(result.rows[0], { status: 201 });
@@ -102,17 +102,28 @@ export async function POST(req: Request) {
 
 export async function PUT(req: Request) {
   try {
-    const body = await req.json();
-    const { id, status } = body;
-
+    const { id, status } = await req.json();
     const result = await pool.query(
-      `UPDATE bookings SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *`,
+      `UPDATE bookings SET status = $1 WHERE id = $2 RETURNING *`,
       [status, id]
     );
-
     return NextResponse.json(result.rows[0]);
   } catch (error: any) {
     console.error("Error updating booking:", error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: Request) {
+  try {
+    const { id } = await req.json();
+    const result = await pool.query(
+      `UPDATE bookings SET status = 'DIBATALKAN' WHERE id = $1 RETURNING *`,
+      [id]
+    );
+    return NextResponse.json(result.rows[0]);
+  } catch (error: any) {
+    console.error("Error cancelling booking:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

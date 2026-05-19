@@ -6,14 +6,18 @@ import {
   User, LogOut, ArrowLeft, CheckCircle2, XCircle, ShieldCheck,
   Image as ImageIcon, Home, FileText, CheckCircle, Clock3, XOctagon, AlertTriangle
 } from 'lucide-react';
+import { useSession, signIn, signOut } from 'next-auth/react';
 
 
 
 
 export default function App() {
+  const { data: session } = useSession();
+  const user = session?.user;
+
   // --- APP STATE ---
   const [currentView, setCurrentView] = useState('home');
-  const [user, setUser] = useState(null);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   // Home / Search State
   const [fields, setFields] = useState([]);
@@ -79,17 +83,16 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    fetch('/api/fields')
+    fetch('/api/fields?public=1')
       .then(res => res.json())
       .then(data => {
-        // Adapt fields to match component's expected data structure if needed
         const adaptedData = data.map((f: any) => ({
           id: f.id,
           name: f.name,
           type: f.type,
           facilities: f.facilities || [],
-          price: Number(f.price_per_hour || f.pricePerHour || 100000), // Handle DB snake_case or JSON camelCase
-          rating: 4.5, // Mock rating
+          price: Number(f.price_per_hour || f.pricePerHour || 100000),
+          rating: 4.5,
           reviews: 50,
           images: f.images || [],
           location: f.location,
@@ -107,10 +110,11 @@ export default function App() {
   }, []);
 
   const fetchMyBookings = () => {
-    if (user) {
+    if (user?.id) {
       fetch(`/api/bookings?customerId=${user.id}`)
         .then(res => res.json())
         .then(data => {
+          if (!Array.isArray(data)) return;
           const adapted = data.map((b: any) => ({
             id: b.id,
             bookingCode: b.booking_code || b.bookingCode,
@@ -129,7 +133,7 @@ export default function App() {
 
   useEffect(() => {
     fetchMyBookings();
-  }, [user]);
+  }, [user?.id]);
 
   // --- HANDLERS ---
   const handleSearchName = (e) => {
@@ -248,8 +252,7 @@ export default function App() {
 
   const handleProceedToCheckout = () => {
     if (!user) {
-      setCurrentView('login');
-      window.scrollTo(0, 0);
+      signIn();
     } else {
       setCurrentView('checkout');
       window.scrollTo(0, 0);
@@ -258,7 +261,6 @@ export default function App() {
 
   const handleLogin = (e) => {
     e.preventDefault();
-    setUser({ id: 1, name: 'Budi Santoso', email: 'budi@example.com' });
     if (selectedField && startHour && endHour) {
       setCurrentView('checkout');
     } else {
@@ -309,8 +311,8 @@ export default function App() {
     })
       .then(res => res.json())
       .then(data => {
-        if (data.error) {
-          alert(data.error);
+        if (!user) {
+          signIn();
           return;
         }
         fetchMyBookings();
@@ -364,7 +366,7 @@ export default function App() {
             <button onClick={() => setCurrentView('home')} className={`font-bold transition-colors ${currentView === 'home' ? 'text-emerald-400' : 'text-gray-300 hover:text-white'}`}>
               Sewa Lapang
             </button>
-            <button onClick={() => { if (!user) { setCurrentView('login'); } else { setCurrentView('my_bookings'); } }} className={`font-bold transition-colors ${currentView === 'my_bookings' ? 'text-emerald-400' : 'text-gray-300 hover:text-white'}`}>
+            <button onClick={() => { if (!user) { signIn(); } else { setCurrentView('my_bookings'); } }} className={`font-bold transition-colors ${currentView === 'my_bookings' ? 'text-emerald-400' : 'text-gray-300 hover:text-white'}`}>
               Booking Lapang
             </button>
           </div>
@@ -373,13 +375,13 @@ export default function App() {
             {user ? (
               <div className="flex items-center space-x-3">
                 <span className="text-sm font-medium text-gray-200 hidden sm:block">Hai, {user.name.split(' ')[0]}</span>
-                <button onClick={() => { setUser(null); setCurrentView('home'); }} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700" title="Keluar">
-                  <LogOut className="h-4 w-4 sm:h-5 sm:w-5" />
+                <button onClick={() => setShowLogoutConfirm(true)} className="bg-red-500/20 text-red-100 hover:bg-red-500 hover:text-white p-2 rounded-xl transition-colors cursor-pointer">
+                  <LogOut className="h-5 w-5" />
                 </button>
               </div>
             ) : (
-              <button onClick={() => setCurrentView('login')} className="flex items-center bg-emerald-500 text-white px-3 sm:px-4 py-1.5 rounded-full text-xs sm:text-sm font-bold hover:bg-emerald-400 shadow-sm">
-                <User className="h-4 w-4 sm:mr-1.5" /> <span className="hidden sm:inline">Masuk</span>
+              <button onClick={() => signIn()} className="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-xl font-bold transition-colors flex items-center shadow-lg shadow-emerald-500/30 cursor-pointer">
+                <User className="h-4 w-4 mr-2" /> Masuk
               </button>
             )}
           </div>
@@ -1037,7 +1039,9 @@ export default function App() {
       <style dangerouslySetInnerHTML={{
         __html: `
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes scaleUp { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
         .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+        .animate-scale-up { animation: scaleUp 0.15s ease-out forwards; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
         .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
@@ -1125,7 +1129,7 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => { if (!user) { setCurrentView('login'); } else { setCurrentView('my_bookings'); } }}
+            onClick={() => { if (!user) { signIn(); } else { setCurrentView('my_bookings'); } }}
             className={`flex flex-col items-center p-2 w-full transition-colors ${currentView === 'my_bookings' ? 'text-emerald-600' : 'text-gray-400'}`}
           >
             <FileText className="w-6 h-6 mb-1" />
@@ -1162,6 +1166,33 @@ export default function App() {
               className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl"
               onClick={(e) => e.stopPropagation()}
             />
+          </div>
+        </div>
+      )}
+
+      {/* Logout Confirmation Modal */}
+      {showLogoutConfirm && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white border border-gray-100 rounded-3xl max-w-sm w-full p-6 shadow-2xl animate-scale-up text-center">
+            <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-100 text-red-500">
+              <LogOut className="h-8 w-8 animate-pulse" />
+            </div>
+            <h3 className="text-xl font-extrabold text-gray-900 mb-2">Konfirmasi Keluar</h3>
+            <p className="text-sm text-gray-500 mb-6 font-medium">Apakah Anda yakin ingin keluar dari akun Anda?</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowLogoutConfirm(false)}
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-xl transition-colors cursor-pointer text-sm"
+              >
+                Batal
+              </button>
+              <button
+                onClick={() => signOut({ callbackUrl: '/' })}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl transition-colors cursor-pointer text-sm"
+              >
+                Ya, Keluar
+              </button>
+            </div>
           </div>
         </div>
       )}
