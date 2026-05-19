@@ -97,7 +97,7 @@ export async function DELETE(req: Request) {
       [id]
     );
 
-    if (result.rowCount === 0) {
+    if (result.rows.length === 0) {
       return NextResponse.json({ error: "Data lapangan tidak ditemukan" }, { status: 404 });
     }
 

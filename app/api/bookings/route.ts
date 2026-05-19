@@ -81,7 +81,7 @@ export async function POST(req: Request) {
       [fieldId, bookingDate, startHour, endHour]
     );
 
-    if (overlapCheck.rowCount > 0) {
+    if (overlapCheck.rows.length > 0) {
       return NextResponse.json({ error: "Waktu tersebut sudah di-booking oleh orang lain." }, { status: 409 });
     }
 
