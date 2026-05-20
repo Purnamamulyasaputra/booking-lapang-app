@@ -105,13 +105,22 @@ export const authOptions = {
           const { rows } = await pool.query("SELECT * FROM customers WHERE email = $1", [profile.email]);
           let customer = rows[0];
           
+          const isRegisterFlow = callbackUrl.includes("action=register");
+
           if (!customer) {
+            if (!isRegisterFlow) {
+              return "/login?error=NotRegistered";
+            }
             const uniquePhone = '08' + Math.floor(1000000000 + Math.random() * 9000000000).toString();
             const insertResult = await pool.query(
               "INSERT INTO customers (name, email, phone, password_hash, tier) VALUES ($1, $2, $3, $4, $5) RETURNING *",
               [profile.name, profile.email, uniquePhone, "google-sso", "BRONZE"]
             );
             customer = insertResult.rows[0];
+          } else {
+            if (isRegisterFlow) {
+              return "/register?error=AlreadyRegistered";
+            }
           }
           user.id = customer.id.toString();
           user.type = "customer";

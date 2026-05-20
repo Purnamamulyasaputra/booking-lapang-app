@@ -1140,6 +1140,23 @@ export default function App() {
             </div>
           </div>
 
+          {/* WhatsApp Input */}
+          <div className="bg-white rounded-3xl shadow-sm p-6 border border-gray-100 mb-6">
+            <label className="block text-xs sm:text-sm font-extrabold text-gray-700 mb-2 uppercase tracking-wider">
+              Nomor WhatsApp
+            </label>
+            <p className="text-[11px] sm:text-xs text-gray-500 mb-4 font-medium leading-relaxed">
+              Kami akan mengirimkan notifikasi konfirmasi pesanan dan instruksi pembayaran ke nomor ini.
+            </p>
+            <input 
+              type="tel"
+              value={userPhoneInput}
+              onChange={(e) => setUserPhoneInput(e.target.value)}
+              placeholder="Contoh: 081234567890"
+              className="w-full border-2 border-gray-100 bg-slate-50 hover:border-emerald-200 hover:bg-white focus:bg-white rounded-2xl px-4 py-3.5 font-bold text-sm text-gray-800 focus:outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all placeholder:text-gray-400 placeholder:font-medium"
+            />
+          </div>
+
           {/* Payment Method Selector Styled Like a Premium Input Dropdown */}
           <div className="bg-white rounded-3xl shadow-sm p-6 border border-gray-100 mb-6">
             <label className="block text-xs sm:text-sm font-extrabold text-gray-700 mb-3 uppercase tracking-wider">
@@ -1242,8 +1259,8 @@ export default function App() {
             {/* Premium Button to Proceed to Step 2 */}
             <button
               onClick={handleProceedToPayment}
-              disabled={!selectedPaymentMethod || isSubmittingMethod}
-              className={`w-full py-4 mt-5 rounded-2xl font-extrabold text-white text-base transition-all shadow-md flex items-center justify-center gap-2 ${selectedPaymentMethod && !isSubmittingMethod
+              disabled={!selectedPaymentMethod || !userPhoneInput || isSubmittingMethod}
+              className={`w-full py-4 mt-5 rounded-2xl font-extrabold text-white text-base transition-all shadow-md flex items-center justify-center gap-2 ${selectedPaymentMethod && userPhoneInput && !isSubmittingMethod
                 ? 'bg-emerald-600 hover:bg-emerald-700 active:scale-95 cursor-pointer shadow-emerald-600/20'
                 : 'bg-gray-200 shadow-none cursor-not-allowed text-gray-400'
                 }`}
