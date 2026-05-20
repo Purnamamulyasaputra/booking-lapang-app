@@ -41,16 +41,21 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { name, type, facilities, location, mapUrl, pricePerHour, status, images, adminId } = body;
+    const { name, type, facilities, location, mapUrl, pricePerHour, status, images, adminId, paymentMethods } = body;
+    const pmArray = Array.isArray(paymentMethods) ? paymentMethods : [];
+    const firstPm = pmArray[0] || {};
+    const bankName = firstPm.bankName || null;
+    const bankAccount = firstPm.bankAccount || null;
+    const bankOwner = firstPm.bankOwner || null;
 
     if (!adminId) {
       return NextResponse.json({ error: "adminId wajib diisi" }, { status: 400 });
     }
 
     const result = await pool.query(
-      `INSERT INTO fields (name, type, facilities, location, map_url, price_per_hour, status, images, admin_id) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-      [name, type, facilities || [], location, mapUrl, pricePerHour, status || "AKTIF", images || [], adminId]
+      `INSERT INTO fields (name, type, facilities, location, map_url, price_per_hour, status, images, admin_id, bank_name, bank_account, bank_owner, payment_methods) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+      [name, type, facilities || [], location, mapUrl, pricePerHour, status || "AKTIF", images || [], adminId, bankName, bankAccount, bankOwner, JSON.stringify(pmArray)]
     );
 
     // Invalidate both caches
@@ -67,11 +72,16 @@ export async function POST(req: Request) {
 export async function PUT(req: Request) {
   try {
     const body = await req.json();
-    const { id, name, type, facilities, location, mapUrl, pricePerHour, status, images, adminId } = body;
+    const { id, name, type, facilities, location, mapUrl, pricePerHour, status, images, adminId, paymentMethods } = body;
+    const pmArray = Array.isArray(paymentMethods) ? paymentMethods : [];
+    const firstPm = pmArray[0] || {};
+    const bankName = firstPm.bankName || null;
+    const bankAccount = firstPm.bankAccount || null;
+    const bankOwner = firstPm.bankOwner || null;
 
     const result = await pool.query(
-      `UPDATE fields SET name=$1, type=$2, facilities=$3, location=$4, map_url=$5, price_per_hour=$6, status=$7, images=$8, updated_at=NOW() WHERE id=$9 RETURNING *`,
-      [name, type, facilities || [], location, mapUrl, pricePerHour, status, images || [], id]
+      `UPDATE fields SET name=$1, type=$2, facilities=$3, location=$4, map_url=$5, price_per_hour=$6, status=$7, images=$8, bank_name=$9, bank_account=$10, bank_owner=$11, payment_methods=$12, updated_at=NOW() WHERE id=$13 RETURNING *`,
+      [name, type, facilities || [], location, mapUrl, pricePerHour, status, images || [], bankName, bankAccount, bankOwner, JSON.stringify(pmArray), id]
     );
 
     if (adminId) await redis.del(`fields:admin:${adminId}`);

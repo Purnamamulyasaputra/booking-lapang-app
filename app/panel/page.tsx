@@ -30,6 +30,7 @@ export default function AdminPanel() {
   const [selectedReceipt, setSelectedReceipt] = useState(null);
   const [currentTime, setCurrentTime] = useState(new Date());
 
+
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(timer);
@@ -77,7 +78,7 @@ export default function AdminPanel() {
             status: b.status.toLowerCase(),
             paymentMethod: 'Transfer',
             receiptImg: b.receipt_img || 'https://via.placeholder.com/400',
-            submitTime: new Date(b.created_at).toLocaleString()
+            submitTime: new Date(b.created_at).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + ' | ' + new Date(b.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }).replace(/\./g, ':')
           };
         });
         setBookings(adapted);
@@ -97,7 +98,8 @@ export default function AdminPanel() {
           location: f.location || '',
           mapUrl: f.map_url || '',
           facilities: f.facilities || [],
-          images: f.images || []
+          images: f.images || [],
+          paymentMethods: (f.payment_methods && Array.isArray(f.payment_methods) && f.payment_methods.length > 0) ? f.payment_methods : []
         }));
         setFieldsData(adapted);
       })
@@ -135,7 +137,8 @@ export default function AdminPanel() {
     location: '',
     mapUrl: '',
     facilities: [''],
-    images: [] // Array untuk lebih dari 1 gambar
+    images: [], // Array untuk lebih dari 1 gambar
+    paymentMethods: [{ bankName: '', bankAccount: '', bankOwner: '' }]
   });
 
   const fileInputAddRef = useRef(null);
@@ -220,7 +223,7 @@ export default function AdminPanel() {
 
   // Modal Tambah Lapangan
   const openAddModal = () => {
-    setNewField({ name: '', type: 'Futsal', price: '', status: 'aktif', location: '', mapUrl: '', facilities: [''], images: [] });
+    setNewField({ name: '', type: 'Futsal', price: '', status: 'aktif', location: '', mapUrl: '', facilities: [''], images: [], paymentMethods: [{ bankName: '', bankAccount: '', bankOwner: '' }] });
     setIsAddFieldOpen(true);
   };
 
@@ -252,6 +255,34 @@ export default function AdminPanel() {
     }
   };
 
+  const handlePaymentMethodChange = (index, field, value, isEdit = false) => {
+    if (isEdit) {
+      const updated = [...currentEditField.paymentMethods];
+      updated[index][field] = value;
+      setCurrentEditField({ ...currentEditField, paymentMethods: updated });
+    } else {
+      const updated = [...newField.paymentMethods];
+      updated[index][field] = value;
+      setNewField({ ...newField, paymentMethods: updated });
+    }
+  };
+
+  const addPaymentMethod = (isEdit = false) => {
+    if (isEdit) {
+      setCurrentEditField({ ...currentEditField, paymentMethods: [...currentEditField.paymentMethods, { bankName: '', bankAccount: '', bankOwner: '' }] });
+    } else {
+      setNewField({ ...newField, paymentMethods: [...newField.paymentMethods, { bankName: '', bankAccount: '', bankOwner: '' }] });
+    }
+  };
+
+  const removePaymentMethod = (index, isEdit = false) => {
+    if (isEdit) {
+      setCurrentEditField({ ...currentEditField, paymentMethods: currentEditField.paymentMethods.filter((_, i) => i !== index) });
+    } else {
+      setNewField({ ...newField, paymentMethods: newField.paymentMethods.filter((_, i) => i !== index) });
+    }
+  };
+
   const saveNewField = () => {
     if (!newField.name || !newField.price) {
       alert("Nama Lapangan dan Harga tidak boleh kosong!");
@@ -279,7 +310,12 @@ export default function AdminPanel() {
 
   // Modal Edit Lapangan
   const openEditModal = (field) => {
-    setCurrentEditField({ ...field, images: [...field.images], facilities: field.facilities?.length > 0 ? [...field.facilities] : [''] }); // Copy agar tidak merubah array asli secara langsung
+    setCurrentEditField({
+      ...field,
+      images: [...field.images],
+      facilities: field.facilities?.length > 0 ? [...field.facilities] : [''],
+      paymentMethods: field.paymentMethods?.length > 0 ? [...field.paymentMethods] : [{ bankName: '', bankAccount: '', bankOwner: '' }]
+    }); // Copy agar tidak merubah array asli secara langsung
     setIsEditFieldOpen(true);
   };
 
@@ -369,85 +405,86 @@ export default function AdminPanel() {
       <>
         {isSidebarOpen && (
           <div
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-          onClick={() => setIsSidebarOpen(false)}
-        />
-      )}
+            className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+            onClick={() => setIsSidebarOpen(false)}
+          />
+        )}
 
-      <aside className={`fixed top-0 left-0 h-full bg-[#0f172a] w-64 text-gray-300 flex flex-col z-50 transition-transform duration-300 ease-in-out transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:static'}`}>
-        <div className="flex items-center justify-between p-5 border-b border-slate-800">
-          <div className="flex items-center">
-            <div className="bg-emerald-500 p-1.5 rounded-lg mr-2">
-              <ShieldCheck className="h-6 w-6 text-white" />
+        <aside className={`fixed top-0 left-0 h-full bg-[#0f172a] w-64 text-gray-300 flex flex-col z-50 transition-transform duration-300 ease-in-out transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:static'}`}>
+          <div className="flex items-center justify-between p-5 border-b border-slate-800">
+            <div className="flex items-center">
+              <div className="bg-emerald-500 p-1.5 rounded-lg mr-2">
+                <ShieldCheck className="h-6 w-6 text-white" />
+              </div>
+              <span className="font-extrabold text-xl text-white">Admin<span className="text-emerald-400">Panel</span></span>
             </div>
-            <span className="font-extrabold text-xl text-white">Admin<span className="text-emerald-400">Panel</span></span>
+            <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden text-gray-400 hover:text-white">
+              <X className="h-6 w-6" />
+            </button>
           </div>
-          <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden text-gray-400 hover:text-white">
-            <X className="h-6 w-6" />
-          </button>
-        </div>
 
-        <div className="flex-1 overflow-y-auto py-6 px-3">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 px-3">Menu Utama</p>
-          <ul className="space-y-1">
-            <li>
-              <button
-                onClick={() => { setActiveTab('dashboard'); closeSidebarMobile(); }}
-                className={`w-full flex items-center px-3 py-3 rounded-xl font-medium transition-colors ${activeTab === 'dashboard' ? 'bg-emerald-600 text-white' : 'hover:bg-slate-800 hover:text-white'}`}
-              >
-                <LayoutDashboard className="h-5 w-5 mr-3" /> Dashboard
-              </button>
-            </li>
-            <li>
-              <button
-                onClick={() => { setActiveTab('bookings'); closeSidebarMobile(); }}
-                className={`w-full flex items-center px-3 py-3 rounded-xl font-medium transition-colors ${activeTab === 'bookings' ? 'bg-emerald-600 text-white' : 'hover:bg-slate-800 hover:text-white'}`}
-              >
-                <ClipboardList className="h-5 w-5 mr-3" />
-                Kelola Pesanan
-                {totalPendingCount > 0 && (
-                  <span className="ml-auto bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
-                    {totalPendingCount}
-                  </span>
-                )}
-              </button>
-            </li>
-            <li>
-              <button
-                onClick={() => { setActiveTab('fields'); closeSidebarMobile(); }}
-                className={`w-full flex items-center px-3 py-3 rounded-xl font-medium transition-colors ${activeTab === 'fields' ? 'bg-emerald-600 text-white' : 'hover:bg-slate-800 hover:text-white'}`}
-              >
-                <MapPin className="h-5 w-5 mr-3" /> Daftar Lapangan
-              </button>
-            </li>
-            <li>
-              <button
-                onClick={() => { setActiveTab('reports'); closeSidebarMobile(); }}
-                className={`w-full flex items-center px-3 py-3 rounded-xl font-medium transition-colors ${activeTab === 'reports' ? 'bg-emerald-600 text-white' : 'hover:bg-slate-800 hover:text-white'}`}
-              >
-                <FileText className="h-5 w-5 mr-3" /> Laporan Harian
-              </button>
-            </li>
-          </ul>
-        </div>
-
-        <div className="p-4 border-t border-slate-800">
-          <div className="flex items-center mb-4 px-2">
-            <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold mr-3">
-              {adminInitials}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-bold text-white truncate">{adminName}</p>
-              <p className="text-xs text-slate-400 truncate">{adminEmail}</p>
-            </div>
+          <div className="flex-1 overflow-y-auto py-6 px-3">
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 px-3">Menu Utama</p>
+            <ul className="space-y-1">
+              <li>
+                <button
+                  onClick={() => { setActiveTab('dashboard'); closeSidebarMobile(); }}
+                  className={`w-full flex items-center px-3 py-3 rounded-xl font-medium transition-colors ${activeTab === 'dashboard' ? 'bg-emerald-600 text-white' : 'hover:bg-slate-800 hover:text-white'}`}
+                >
+                  <LayoutDashboard className="h-5 w-5 mr-3" /> Dashboard
+                </button>
+              </li>
+              <li>
+                <button
+                  onClick={() => { setActiveTab('bookings'); closeSidebarMobile(); }}
+                  className={`w-full flex items-center px-3 py-3 rounded-xl font-medium transition-colors ${activeTab === 'bookings' ? 'bg-emerald-600 text-white' : 'hover:bg-slate-800 hover:text-white'}`}
+                >
+                  <ClipboardList className="h-5 w-5 mr-3" />
+                  Kelola Pesanan
+                  {totalPendingCount > 0 && (
+                    <span className="ml-auto bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                      {totalPendingCount}
+                    </span>
+                  )}
+                </button>
+              </li>
+              <li>
+                <button
+                  onClick={() => { setActiveTab('fields'); closeSidebarMobile(); }}
+                  className={`w-full flex items-center px-3 py-3 rounded-xl font-medium transition-colors ${activeTab === 'fields' ? 'bg-emerald-600 text-white' : 'hover:bg-slate-800 hover:text-white'}`}
+                >
+                  <MapPin className="h-5 w-5 mr-3" /> Daftar Lapangan
+                </button>
+              </li>
+              <li>
+                <button
+                  onClick={() => { setActiveTab('reports'); closeSidebarMobile(); }}
+                  className={`w-full flex items-center px-3 py-3 rounded-xl font-medium transition-colors ${activeTab === 'reports' ? 'bg-emerald-600 text-white' : 'hover:bg-slate-800 hover:text-white'}`}
+                >
+                  <FileText className="h-5 w-5 mr-3" /> Laporan Harian
+                </button>
+              </li>
+            </ul>
           </div>
-          <button onClick={() => setShowLogoutConfirm(true)} className="w-full flex items-center px-3 py-3 rounded-xl font-medium text-gray-400 hover:text-white hover:bg-slate-800 transition-colors">
-            <LogOut className="h-5 w-5 mr-3" /> Keluar (Logout)
-          </button>
-        </div>
-      </aside>
-    </>
-  );};
+
+          <div className="p-4 border-t border-slate-800">
+            <div className="flex items-center mb-4 px-2">
+              <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold mr-3">
+                {adminInitials}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold text-white truncate">{adminName}</p>
+                <p className="text-xs text-slate-400 truncate">{adminEmail}</p>
+              </div>
+            </div>
+            <button onClick={() => setShowLogoutConfirm(true)} className="w-full flex items-center px-3 py-3 rounded-xl font-medium text-gray-400 hover:text-white hover:bg-slate-800 transition-colors">
+              <LogOut className="h-5 w-5 mr-3" /> Keluar (Logout)
+            </button>
+          </div>
+        </aside>
+      </>
+    );
+  };
 
   const renderDashboard = () => (
     <div className="animate-fade-in">
@@ -535,7 +572,7 @@ export default function AdminPanel() {
       <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
         {/* Desktop Table Header */}
         <div className="hidden md:grid grid-cols-12 gap-4 p-4 bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase tracking-wider">
-          <div className="col-span-3">ID & Pelanggan</div>
+          <div className="col-span-3">Pelanggan</div>
           <div className="col-span-3">Jadwal Lapangan</div>
           <div className="col-span-2">Total Biaya</div>
           <div className="col-span-2">Status</div>
@@ -559,7 +596,6 @@ export default function AdminPanel() {
                   {/* Info Pelanggan */}
                   <div className="col-span-3 mb-3 md:mb-0">
                     <div className="flex justify-between md:block mb-1">
-                      <span className="text-xs font-bold text-gray-400">{bkg.id}</span>
                       <div className={`md:hidden flex items-center px-2 py-0.5 rounded-md border text-[10px] font-bold ${statusColor}`}>
                         <StatusIcon className="w-3 h-3 mr-1" /> {bkg.status.toUpperCase()}
                       </div>
@@ -760,6 +796,10 @@ export default function AdminPanel() {
                   <span className="text-xs font-bold text-gray-900">{selectedReceipt.userName}</span>
                 </div>
                 <div className="flex justify-between">
+                  <span className="text-xs text-gray-500 font-medium">Waktu Booking</span>
+                  <span className="text-xs font-bold text-gray-900">{selectedReceipt.submitTime}</span>
+                </div>
+                <div className="flex justify-between">
                   <span className="text-xs text-gray-500 font-medium">No. HP</span>
                   <span className="text-xs font-bold text-gray-900">{selectedReceipt.userPhone}</span>
                 </div>
@@ -918,6 +958,59 @@ export default function AdminPanel() {
                   onChange={(e) => setNewField({ ...newField, mapUrl: e.target.value })}
                   className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-emerald-500 font-medium text-sm text-gray-900"
                 />
+              </div>
+            </div>
+
+            {/* Rekening Pembayaran */}
+            <div className="pt-2 border-t border-gray-100 mt-2">
+              <div className="flex justify-between items-center mb-2">
+                <label className="block text-xs font-bold text-gray-700">Informasi Pembayaran Lapangan</label>
+                <button type="button" onClick={() => addPaymentMethod(false)} className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-1 rounded-md font-bold hover:bg-emerald-200">
+                  + Tambah Rekening
+                </button>
+              </div>
+              <div className="space-y-3">
+                {(newField.paymentMethods || []).map((pm, idx) => (
+                  <div key={idx} className="relative p-3 border border-gray-200 rounded-xl bg-gray-50/50">
+                    {(newField.paymentMethods || []).length > 1 && (
+                      <button type="button" onClick={() => removePaymentMethod(idx, false)} className="absolute -top-2 -right-2 p-1 bg-red-100 text-red-500 rounded-full hover:bg-red-200 shadow-sm">
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase">Nama Bank/E-Wallet</label>
+                        <input
+                          type="text"
+                          placeholder="Cth: BCA / DANA"
+                          value={pm.bankName}
+                          onChange={(e) => handlePaymentMethodChange(idx, 'bankName', e.target.value, false)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-emerald-500 font-medium text-xs text-gray-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase">Nomor Rekening</label>
+                        <input
+                          type="text"
+                          placeholder="Cth: 1234567890"
+                          value={pm.bankAccount}
+                          onChange={(e) => handlePaymentMethodChange(idx, 'bankAccount', e.target.value, false)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-emerald-500 font-medium text-xs text-gray-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase">Atas Nama</label>
+                        <input
+                          type="text"
+                          placeholder="Cth: John Doe"
+                          value={pm.bankOwner}
+                          onChange={(e) => handlePaymentMethodChange(idx, 'bankOwner', e.target.value, false)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-emerald-500 font-medium text-xs text-gray-900"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -1113,6 +1206,59 @@ export default function AdminPanel() {
                         <X className="w-4 h-4" />
                       </button>
                     )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Edit Rekening Pembayaran */}
+            <div className="pt-2 border-t border-gray-100 mt-2">
+              <div className="flex justify-between items-center mb-2">
+                <label className="block text-xs font-bold text-gray-700">Informasi Pembayaran Lapangan</label>
+                <button type="button" onClick={() => addPaymentMethod(true)} className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-1 rounded-md font-bold hover:bg-emerald-200">
+                  + Tambah Rekening
+                </button>
+              </div>
+              <div className="space-y-3">
+                {(currentEditField.paymentMethods || []).map((pm, idx) => (
+                  <div key={idx} className="relative p-3 border border-gray-200 rounded-xl bg-gray-50/50">
+                    {(currentEditField.paymentMethods || []).length > 1 && (
+                      <button type="button" onClick={() => removePaymentMethod(idx, true)} className="absolute -top-2 -right-2 p-1 bg-red-100 text-red-500 rounded-full hover:bg-red-200 shadow-sm">
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase">Nama Bank/E-Wallet</label>
+                        <input
+                          type="text"
+                          placeholder="Cth: BCA / DANA"
+                          value={pm.bankName}
+                          onChange={(e) => handlePaymentMethodChange(idx, 'bankName', e.target.value, true)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-emerald-500 font-medium text-xs text-gray-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase">Nomor Rekening</label>
+                        <input
+                          type="text"
+                          placeholder="Cth: 1234567890"
+                          value={pm.bankAccount}
+                          onChange={(e) => handlePaymentMethodChange(idx, 'bankAccount', e.target.value, true)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-emerald-500 font-medium text-xs text-gray-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase">Atas Nama</label>
+                        <input
+                          type="text"
+                          placeholder="Cth: John Doe"
+                          value={pm.bankOwner}
+                          onChange={(e) => handlePaymentMethodChange(idx, 'bankOwner', e.target.value, true)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-emerald-500 font-medium text-xs text-gray-900"
+                        />
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1344,12 +1490,12 @@ export default function AdminPanel() {
           <div className="lg:col-span-2 bg-white rounded-3xl shadow-sm border border-gray-100 p-6">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-bold text-gray-900">Log Transaksi (Dikonfirmasi)</h2>
-              <button 
+              <button
                 disabled={isDownloadingPdf}
                 onClick={async () => {
                   try {
                     setIsDownloadingPdf(true);
-                    
+
                     // 1. Load html2pdf dynamically if not already present
                     if (!window.html2pdf) {
                       await new Promise((resolve, reject) => {
@@ -1425,11 +1571,11 @@ export default function AdminPanel() {
                     `;
 
                     const opt = {
-                      margin:       10,
-                      filename:     `Laporan-Harian-${reportDate}.pdf`,
-                      image:        { type: 'jpeg', quality: 0.98 },
-                      html2canvas:  { scale: 2, useCORS: true, logging: false },
-                      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                      margin: 10,
+                      filename: `Laporan-Harian-${reportDate}.pdf`,
+                      image: { type: 'jpeg', quality: 0.98 },
+                      html2canvas: { scale: 2, useCORS: true, logging: false },
+                      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
                     };
 
                     await window.html2pdf().from(container).set(opt).save();
@@ -1439,7 +1585,7 @@ export default function AdminPanel() {
                   } finally {
                     setIsDownloadingPdf(false);
                   }
-                }} 
+                }}
                 className="text-xs font-bold bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white px-3 py-1.5 rounded-lg transition-colors flex items-center shadow-sm cursor-pointer"
               >
                 {isDownloadingPdf ? (

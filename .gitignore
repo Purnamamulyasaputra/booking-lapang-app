@@ -45,3 +45,17 @@ next-env.d.ts
 
 referensi/*
 text.txt
+
+# Editor directories and files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary scripts and AI generated files
+scratch/
+.cursor/
+.windsurf/
+
+# Linting
+.eslintcache

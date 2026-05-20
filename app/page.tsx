@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Search, Calendar, Clock, Star, MapPin, Upload,
   User, LogOut, ArrowLeft, CheckCircle2, XCircle, ShieldCheck,
-  Image as ImageIcon, Home, FileText, CheckCircle, Clock3, XOctagon, AlertTriangle
+  Image as ImageIcon, Home, FileText, CheckCircle, Clock3, XOctagon, AlertTriangle, ChevronRight
 } from 'lucide-react';
 import { useSession, signIn, signOut } from 'next-auth/react';
 
@@ -26,6 +26,8 @@ export default function App() {
   const [searchName, setSearchName] = useState(''); // Diperbaiki: Variabel ini sebelumnya terhapus
   const [searchDate, setSearchDate] = useState(new Date().toISOString().split('T')[0]);
   const [searchTime, setSearchTime] = useState('');
+  const [bookedFieldIds, setBookedFieldIds] = useState([]);
+
 
   // Detail / Booking State
   const [selectedField, setSelectedField] = useState(null);
@@ -44,9 +46,28 @@ export default function App() {
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [receiptPreviewUrl, setReceiptPreviewUrl] = useState('');
   const fileInputRef = useRef(null);
-  
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('');
+  const [expandedPaymentGroups, setExpandedPaymentGroups] = useState({
+    'Virtual Account': false,
+    'E-Wallet': false,
+    'Lainnya': false
+  });
+
+  const togglePaymentGroup = (group) => {
+    setExpandedPaymentGroups(prev => ({
+      ...prev,
+      [group]: !prev[group]
+    }));
+  };
+
+  const [checkoutStep, setCheckoutStep] = useState('select_method');
+  const [userPhoneInput, setUserPhoneInput] = useState('');
+  const [createdBooking, setCreatedBooking] = useState<any>(null);
+  const [isSubmittingMethod, setIsSubmittingMethod] = useState(false);
+
   // Copy States
   const [copiedBCA, setCopiedBCA] = useState(false);
+  const [copiedNominal, setCopiedNominal] = useState(false);
   const [copiedEwallet, setCopiedEwallet] = useState(false);
 
   const handleCopy = (text, type) => {
@@ -54,6 +75,9 @@ export default function App() {
     if (type === 'bca') {
       setCopiedBCA(true);
       setTimeout(() => setCopiedBCA(false), 2000);
+    } else if (type === 'nominal') {
+      setCopiedNominal(true);
+      setTimeout(() => setCopiedNominal(false), 2000);
     } else {
       setCopiedEwallet(true);
       setTimeout(() => setCopiedEwallet(false), 2000);
@@ -97,7 +121,11 @@ export default function App() {
           images: f.images || [],
           location: f.location,
           mapUrl: f.map_url,
-          status: f.status
+          status: f.status,
+          bankName: f.bank_name,
+          bankAccount: f.bank_account,
+          bankOwner: f.bank_owner,
+          paymentMethods: (f.payment_methods && Array.isArray(f.payment_methods) && f.payment_methods.length > 0) ? f.payment_methods : []
         }));
         setFields(adaptedData);
         setAllFields(adaptedData);
@@ -108,6 +136,7 @@ export default function App() {
         setIsLoadingFields(false);
       });
   }, []);
+
 
   const fetchMyBookings = () => {
     if (user?.id) {
@@ -135,6 +164,19 @@ export default function App() {
     fetchMyBookings();
   }, [user?.id]);
 
+  useEffect(() => {
+    if (user?.id) {
+      fetch(`/api/customers?id=${user.id}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.phone && !data.phone.startsWith('G-')) {
+            setUserPhoneInput(data.phone);
+          }
+        })
+        .catch(err => console.error("Error fetching customer phone:", err));
+    }
+  }, [user?.id]);
+
   // --- HANDLERS ---
   const handleSearchName = (e) => {
     const val = e.target.value;
@@ -142,21 +184,46 @@ export default function App() {
     let filtered = allFields.filter((f: any) => f.name.toLowerCase().includes(val.toLowerCase()));
 
     // Pertahankan filter jam jika sedang aktif
-    if (searchTime) {
-      filtered = [...filtered].sort(() => Math.random() - 0.5);
+    if (searchTime && bookedFieldIds.length > 0) {
+      filtered = filtered.filter(f => !bookedFieldIds.includes(String(f.id)));
     }
     setFields(filtered);
   };
 
-  const handleSearch = () => {
+  const handleSearch = async () => {
     let filtered = allFields;
     if (searchName) {
       filtered = filtered.filter(f => f.name.toLowerCase().includes(searchName.toLowerCase()));
     }
-    // Logika Filter Jam (Bisa disesuaikan dengan koneksi database sungguhan)
-    // Disini kita acak saja urutannya sebagai simulasi filter pencarian
-    if (searchTime) {
-      filtered = [...filtered].sort(() => Math.random() - 0.5);
+
+    if (searchTime && searchDate) {
+      try {
+        const res = await fetch(`/api/bookings?date=${searchDate}`);
+        const bookings = await res.json();
+
+        if (Array.isArray(bookings)) {
+          const targetHour = Number(searchTime);
+          const bookedIds = bookings
+            .filter((b: any) => {
+              if (!b) return false;
+              const statusUpper = (b.status || '').toUpperCase();
+              return (
+                statusUpper !== 'DIBATALKAN' &&
+                statusUpper !== 'DITOLAK' &&
+                Number(b.start_hour) <= targetHour &&
+                Number(b.end_hour) > targetHour
+              );
+            })
+            .map((b: any) => String(b.field_id));
+
+          setBookedFieldIds(bookedIds);
+          filtered = filtered.filter(f => !bookedIds.includes(String(f.id)));
+        }
+      } catch (err) {
+        console.error("Error filtering fields by time:", err);
+      }
+    } else {
+      setBookedFieldIds([]);
     }
     setFields(filtered);
   };
@@ -165,6 +232,7 @@ export default function App() {
     setSearchName('');
     setSearchDate(new Date().toISOString().split('T')[0]);
     setSearchTime('');
+    setBookedFieldIds([]);
     setFields(allFields);
   };
 
@@ -180,6 +248,7 @@ export default function App() {
       setStartHour('');
       setEndHour('');
     }
+    setSelectedPaymentMethod(field?.paymentMethods?.length > 0 ? 'custom_admin_0' : '');
     setCurrentView('detail');
     window.scrollTo(0, 0);
   };
@@ -203,22 +272,22 @@ export default function App() {
       fetch(`/api/bookings?fieldId=${selectedField.id}&date=${bookingDate}`)
         .then(res => res.json())
         .then(bookings => {
-           const slots = [];
-           const startHour = 8;
-           const endHour = 22;
-           for (let i = startHour; i < endHour; i++) {
-             const isBooked = bookings.some(b => 
-                b.status?.toUpperCase() !== 'DIBATALKAN' && 
-                b.status?.toUpperCase() !== 'DITOLAK' &&
-                b.start_hour <= i && b.end_hour > i
-             );
-             slots.push({ hour: i, status: isBooked ? 'booked' : 'available' });
-           }
-           setTimeSlots(slots);
-           if (!searchTime) {
-             setStartHour('');
-             setEndHour('');
-           }
+          const slots = [];
+          const startHour = 8;
+          const endHour = 22;
+          for (let i = startHour; i < endHour; i++) {
+            const isBooked = bookings.some(b =>
+              b.status?.toUpperCase() !== 'DIBATALKAN' &&
+              b.status?.toUpperCase() !== 'DITOLAK' &&
+              b.start_hour <= i && b.end_hour > i
+            );
+            slots.push({ hour: i, status: isBooked ? 'booked' : 'available' });
+          }
+          setTimeSlots(slots);
+          if (!searchTime) {
+            setStartHour('');
+            setEndHour('');
+          }
         })
         .catch(err => console.error(err));
     }
@@ -279,9 +348,49 @@ export default function App() {
     }
   };
 
-  const submitCheckout = async () => {
+  const handleProceedToPayment = async () => {
+    setIsSubmittingMethod(true);
     const duration = Number(endHour) - Number(startHour);
-    const total = (duration * selectedField.price) + 5000;
+    const total = duration * selectedField.price;
+
+    try {
+      const response = await fetch('/api/bookings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerId: user.id,
+          fieldId: selectedField.id,
+          bookingDate: bookingDate,
+          startHour: Number(startHour),
+          endHour: Number(endHour),
+          totalPrice: total,
+          paymentMethod: 'Transfer',
+          receiptImg: null,
+          customerPhone: userPhoneInput,
+          paymentMethodCode: selectedPaymentMethod
+        })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setCreatedBooking(data);
+        setCheckoutStep('details');
+        window.scrollTo(0, 0);
+      } else {
+        showToast(data.error || "Gagal membuat pesanan", "error");
+      }
+    } catch (err) {
+      console.error("Error creating booking:", err);
+      showToast("Terjadi kesalahan jaringan", "error");
+    } finally {
+      setIsSubmittingMethod(false);
+    }
+  };
+
+  const submitCheckout = async () => {
+    if (!createdBooking) {
+      showToast("Pesanan tidak ditemukan, silakan buat ulang", "error");
+      return;
+    }
 
     let receiptUrl = '';
     if (receiptFile) {
@@ -296,17 +405,12 @@ export default function App() {
     }
 
     fetch('/api/bookings', {
-      method: 'POST',
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        customerId: user.id,
-        fieldId: selectedField.id,
-        bookingDate: bookingDate,
-        startHour: Number(startHour),
-        endHour: Number(endHour),
-        totalPrice: total,
-        paymentMethod: 'Transfer',
-        receiptImg: receiptUrl
+        id: createdBooking.id,
+        receiptImg: receiptUrl,
+        status: 'MENUNGGU'
       })
     })
       .then(res => res.json())
@@ -322,9 +426,10 @@ export default function App() {
         setReceiptFile(null);
         setReceiptPreviewUrl('');
         setIsPreviewModalOpen(false);
+        setCreatedBooking(null);
         window.scrollTo(0, 0);
       })
-      .catch(err => console.error("Error creating booking", err));
+      .catch(err => console.error("Error updating booking receipt", err));
   };
 
   const confirmCancel = (id) => {
@@ -408,7 +513,7 @@ export default function App() {
                 <Calendar className="absolute left-4 top-1/2 transform -translate-y-1/2 text-emerald-600 h-5 w-5 z-10" />
                 <input
                   type="date"
-                  className="w-full pl-12 pr-4 py-3.5 text-sm sm:text-base border-0 rounded-2xl shadow-inner focus:ring-4 focus:ring-emerald-400/50 font-bold text-gray-800 bg-white cursor-pointer"
+                  className="w-full pl-12 pr-4 py-3.5 text-sm sm:text-base border-0 rounded-2xl shadow-inner focus:ring-4 focus:ring-emerald-400/50 font-bold text-gray-800 bg-white cursor-pointer outline-none"
                   value={searchDate} onChange={(e) => setSearchDate(e.target.value)}
                 />
               </div>
@@ -419,7 +524,7 @@ export default function App() {
               <div className="relative">
                 <Clock className="absolute left-4 top-1/2 transform -translate-y-1/2 text-emerald-600 h-5 w-5 z-10" />
                 <select
-                  className="w-full pl-12 pr-4 py-3.5 text-sm sm:text-base border-0 rounded-2xl shadow-inner focus:ring-4 focus:ring-emerald-400/50 font-bold text-gray-800 bg-white appearance-none"
+                  className="w-full pl-12 pr-4 py-3.5 text-sm sm:text-base border-0 rounded-2xl shadow-inner focus:ring-4 focus:ring-emerald-400/50 font-bold text-gray-800 bg-white appearance-none outline-none cursor-pointer"
                   value={searchTime} onChange={(e) => setSearchTime(e.target.value)}
                 >
                   <option value="">Semua Jam</option>
@@ -447,8 +552,8 @@ export default function App() {
             <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5 z-10" />
             <input
               type="text"
-              placeholder="Ketik nama lapangan (Cth: Garuda, Champion)..."
-              className="w-full pl-12 pr-4 py-3.5 text-sm sm:text-base border-0 rounded-2xl shadow-inner focus:ring-4 focus:ring-emerald-400/50 font-bold text-gray-800 bg-white"
+              placeholder="Ketik nama lapangan ..."
+              className="w-full pl-12 pr-4 py-3.5 text-sm sm:text-base border-0 rounded-2xl shadow-inner focus:ring-4 focus:ring-emerald-400/50 font-bold text-gray-800 bg-white outline-none"
               value={searchName}
               onChange={handleSearchName}
             />
@@ -643,25 +748,37 @@ export default function App() {
                 {currentImageIndex + 1} / {selectedField.images.length}
               </div>
 
-              <div className="absolute bottom-0 left-0 w-full bg-gradient-to-t from-black/90 to-transparent p-5 sm:p-8 pointer-events-none">
-                <div className="flex gap-2 mb-2">
-                  <span className="bg-emerald-500 text-white px-3 py-1 rounded-full text-[10px] sm:text-xs font-bold inline-block">{selectedField.type}</span>
+              <div className="absolute bottom-0 left-0 w-full bg-gradient-to-t from-black/95 via-black/60 to-transparent p-5 sm:p-8 pointer-events-none flex flex-col gap-2.5">
+                <h1 className="text-xl sm:text-3xl font-extrabold text-white leading-tight">{selectedField.name}</h1>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="bg-emerald-500 text-white px-2.5 py-1 rounded-full text-[10px] sm:text-xs font-bold inline-flex items-center justify-center h-7 sm:h-8">
+                    {selectedField.type}
+                  </span>
+
                   {selectedField.status?.toLowerCase() === 'aktif' ? (
-                    <span className="bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full text-[10px] sm:text-xs font-bold inline-block flex items-center">
-                      <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full mr-1.5"></div>Buka
+                    <span className="bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full text-[10px] sm:text-xs font-bold inline-flex items-center justify-center gap-1.5 h-7 sm:h-8">
+                      <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>Buka
                     </span>
                   ) : (
-                    <span className="bg-red-100 text-red-800 px-3 py-1 rounded-full text-[10px] sm:text-xs font-bold inline-block flex items-center">
-                      <div className="w-1.5 h-1.5 bg-red-500 rounded-full mr-1.5"></div>Tutup
+                    <span className="bg-red-100 text-red-800 px-2.5 py-1 rounded-full text-[10px] sm:text-xs font-bold inline-flex items-center justify-center gap-1.5 h-7 sm:h-8">
+                      <span className="w-1.5 h-1.5 bg-red-500 rounded-full"></span>Tutup
                     </span>
                   )}
+
+                  <div className="inline-flex items-center space-x-2 text-white text-[10px] sm:text-xs font-bold bg-black/50 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/10 h-7 sm:h-8">
+                    <div className="flex items-center text-yellow-400">
+                      <Star className="h-3 w-3 sm:h-3.5 sm:w-3.5 fill-current mr-1 animate-pulse" /> {selectedField.rating}
+                    </div>
+                    <span className="text-white/20">|</span>
+                    <span className="text-emerald-400">Rp {selectedField.price.toLocaleString('id-ID')}/Jam</span>
+                  </div>
                 </div>
-                <h1 className="text-xl sm:text-3xl font-extrabold text-white leading-tight">{selectedField.name}</h1>
               </div>
             </div>
 
-            {/* Thumbnail Navigation */}
-            <div className="flex overflow-x-auto gap-2 p-3 sm:p-4 bg-gray-50 border-b border-gray-100 scrollbar-hide">
+            {/* Thumbnail Navigation - HIDDEN ON MOBILE */}
+            <div className="hidden sm:flex overflow-x-auto gap-2 p-3 sm:p-4 bg-gray-50 border-b border-gray-100 scrollbar-hide">
               {selectedField.images.map((img, idx) => (
                 <div key={idx} onClick={() => scrollToImage(idx)} className={`relative flex-shrink-0 w-20 h-16 sm:w-28 sm:h-20 rounded-lg overflow-hidden cursor-pointer transition-all duration-200 border-2 ${currentImageIndex === idx ? 'border-emerald-500 shadow-md ring-2 ring-emerald-200' : 'border-transparent opacity-70 hover:opacity-100'}`}>
                   <img src={img} alt={`Thumb ${idx + 1}`} className="w-full h-full object-cover" />
@@ -670,52 +787,9 @@ export default function App() {
             </div>
 
             <div className="p-4 sm:p-8 flex flex-col lg:flex-row gap-6 lg:gap-10">
-              <div className="flex-1">
-                <div className="flex gap-4 mb-6 pb-6 border-b border-gray-100">
-                  <div className="flex-1 bg-emerald-50 p-3 sm:p-4 rounded-2xl border border-emerald-100">
-                    <p className="text-[10px] sm:text-xs text-emerald-800 font-bold uppercase mb-0.5">Sewa / Jam</p>
-                    <p className="text-lg sm:text-2xl font-extrabold text-emerald-600">Rp {selectedField.price.toLocaleString('id-ID')}</p>
-                  </div>
-                  <div className="flex-1 bg-yellow-50 p-3 sm:p-4 rounded-2xl border border-yellow-100">
-                    <p className="text-[10px] sm:text-xs text-yellow-800 font-bold uppercase mb-0.5">Rating</p>
-                    <div className="flex items-center text-yellow-500 text-lg sm:text-2xl font-extrabold">
-                      <Star className="h-5 w-5 sm:h-6 sm:w-6 fill-current mr-1" /> {selectedField.rating}
-                    </div>
-                  </div>
-                </div>
 
-                <h3 className="font-extrabold text-gray-900 mb-3 text-base sm:text-xl">Fasilitas Utama</h3>
-                <ul className="space-y-3 mb-8">
-                  {selectedField.facilities && selectedField.facilities.map((fac, idx) => (
-                    <li key={idx} className="flex items-center text-gray-700 bg-gray-50 p-3 rounded-xl border border-gray-100">
-                      <CheckCircle2 className="h-5 w-5 text-emerald-500 mr-3" />
-                      <span className="text-sm font-bold">{fac}</span>
-                    </li>
-                  ))}
-                  <li className="flex items-center text-gray-700 bg-gray-50 p-3 rounded-xl border border-gray-100">
-                    <MapPin className="h-5 w-5 text-emerald-500 mr-3" />
-                    <span className="text-sm font-bold">{selectedField.location}</span>
-                  </li>
-                </ul>
-
-                {selectedField.mapUrl && (
-                  <div className="mt-6">
-                    <h3 className="font-extrabold text-gray-900 mb-3 text-base sm:text-xl">Lokasi Lapangan</h3>
-                    <div className="w-full p-6 bg-gray-50 rounded-2xl border border-gray-200 text-center flex flex-col items-center justify-center">
-                      <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4">
-                        <MapPin className="h-8 w-8 text-blue-600" />
-                      </div>
-                      <p className="text-sm font-bold text-gray-700 mb-4 text-center">Buka Google Maps untuk melihat rute perjalanan ke lapangan ini.</p>
-                      <a href={selectedField.mapUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center bg-blue-600 text-white px-6 py-3 rounded-xl font-bold shadow-md hover:bg-blue-700 transition-colors">
-                        Buka di Google Maps
-                      </a>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Kolom Kanan: Pilih Jadwal (Start - End) */}
-              <div className="flex-1 lg:max-w-[420px]">
+              {/* Kolom Kanan: Pilih Jadwal (Start - End) - ORDERED FIRST ON MOBILE */}
+              <div className="flex-1 lg:max-w-[420px] order-1 lg:order-2">
                 <div className="bg-gray-50 sm:bg-white p-5 sm:p-6 rounded-3xl border border-gray-200 lg:sticky lg:top-24 shadow-sm">
                   {selectedField.status?.toLowerCase() !== 'aktif' ? (
                     <div className="text-center py-8">
@@ -760,13 +834,13 @@ export default function App() {
                               const hour = i + 8;
                               const isBooked = timeSlots.find(s => s.hour === hour)?.status === 'booked';
                               return (
-                                <option 
-                                  key={hour} 
-                                  value={hour} 
+                                <option
+                                  key={hour}
+                                  value={hour}
                                   disabled={isBooked}
-                                  className={isBooked ? "text-gray-400 font-bold bg-gray-100" : "text-gray-900"}
+                                  className={isBooked ? "text-red-500 font-bold" : "text-gray-900 font-medium"}
                                 >
-                                  {String(hour).padStart(2, '0')}:00
+                                  {String(hour).padStart(2, '0')}:00{isBooked ? " (Booked)" : ""}
                                 </option>
                               );
                             })}
@@ -812,6 +886,63 @@ export default function App() {
                   )}
                 </div>
               </div>
+
+              {/* Kolom Kiri: Detail / Fasilitas / Lokasi - ORDERED SECOND ON MOBILE */}
+              <div className="flex-1 order-2 lg:order-1">
+                {/* Sewa/Jam & Rating hidden on mobile, visible on desktop */}
+                <div className="hidden sm:flex gap-4 mb-6 pb-6 border-b border-gray-100">
+                  <div className="flex-1 bg-emerald-50 p-3 sm:p-4 rounded-2xl border border-emerald-100">
+                    <p className="text-[10px] sm:text-xs text-emerald-800 font-bold uppercase mb-0.5">Sewa / Jam</p>
+                    <p className="text-lg sm:text-2xl font-extrabold text-emerald-600">Rp {selectedField.price.toLocaleString('id-ID')}</p>
+                  </div>
+                  <div className="flex-1 bg-yellow-50 p-3 sm:p-4 rounded-2xl border border-yellow-100">
+                    <p className="text-[10px] sm:text-xs text-yellow-800 font-bold uppercase mb-0.5">Rating</p>
+                    <div className="flex items-center text-yellow-500 text-lg sm:text-2xl font-extrabold">
+                      <Star className="h-5 w-5 sm:h-6 sm:w-6 fill-current mr-1" /> {selectedField.rating}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Fasilitas Utama - Only show if there are valid facilities */}
+                {selectedField.facilities && selectedField.facilities.filter(fac => fac && fac.trim() !== '').length > 0 && (
+                  <>
+                    <h3 className="font-extrabold text-gray-900 mb-3 text-base sm:text-xl">Fasilitas Utama</h3>
+                    <ul className="space-y-3 mb-6">
+                      {selectedField.facilities
+                        .filter(fac => fac && fac.trim() !== '')
+                        .map((fac, idx) => (
+                          <li key={idx} className="flex items-center text-gray-700 bg-gray-50 p-3 rounded-xl border border-gray-100">
+                            <CheckCircle2 className="h-5 w-5 text-emerald-500 mr-3 flex-shrink-0" />
+                            <span className="text-sm font-bold">{fac}</span>
+                          </li>
+                        ))}
+                    </ul>
+                  </>
+                )}
+
+                {/* Alamat Lapangan */}
+                <h3 className="font-extrabold text-gray-900 mb-3 text-base sm:text-xl">Alamat Lapangan</h3>
+                <div className="flex items-center text-gray-700 bg-gray-50 p-3 rounded-xl border border-gray-100 mb-8">
+                  <MapPin className="h-5 w-5 text-emerald-500 mr-3 flex-shrink-0" />
+                  <span className="text-sm font-bold">{selectedField.location}</span>
+                </div>
+
+                {selectedField.mapUrl && (
+                  <div className="mt-6">
+                    <h3 className="font-extrabold text-gray-900 mb-3 text-base sm:text-xl">Lokasi Lapangan</h3>
+                    <div className="w-full p-6 bg-gray-50 rounded-2xl border border-gray-200 text-center flex flex-col items-center justify-center">
+                      <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4">
+                        <MapPin className="h-8 w-8 text-blue-600" />
+                      </div>
+                      <p className="text-sm font-bold text-gray-700 mb-4 text-center">Buka Google Maps untuk melihat rute perjalanan ke lapangan ini.</p>
+                      <a href={selectedField.mapUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center bg-blue-600 text-white px-6 py-3 rounded-xl font-bold shadow-md hover:bg-blue-700 transition-colors">
+                        Buka di Google Maps
+                      </a>
+                    </div>
+                  </div>
+                )}
+              </div>
+
             </div>
           </div>
         </div>
@@ -879,113 +1010,439 @@ export default function App() {
   const renderCheckoutView = () => {
     const duration = Number(endHour) - Number(startHour);
     const totalFieldPrice = duration * (selectedField?.price || 0);
-    const serviceFee = 5000;
-    const finalTotal = totalFieldPrice + serviceFee;
+    const finalTotal = totalFieldPrice;
     const timeString = `${String(startHour).padStart(2, '0')}:00 - ${String(endHour).padStart(2, '0')}:00`;
 
-    return (
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 animate-fade-in">
-        <div className="flex items-center mb-6 justify-center relative">
-          <button onClick={() => setCurrentView('detail')} className="absolute left-0 p-2 bg-white rounded-full shadow-sm border border-gray-200 text-gray-600">
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <h1 className="text-xl sm:text-2xl font-extrabold text-gray-900">Pembayaran</h1>
-        </div>
+    const customOwner = selectedField?.bankOwner || 'Yayasan Peduli Sesama';
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-white rounded-3xl shadow-sm p-5 border border-gray-100 self-start">
-            <h2 className="text-lg font-bold text-gray-800 mb-4 pb-3 border-b border-gray-100">Rincian Sewa</h2>
-            <div className="flex items-center mb-5">
-              <img src={selectedField?.images[0]} alt="Thumb" className="w-16 h-16 rounded-xl object-cover mr-4" />
+    const accountMap = {
+      bca: {
+        badge: 'BCA',
+        title: 'BCA (Transfer Manual)',
+        number: '1234567890',
+        name: customOwner,
+        instructionTitle: 'Instruksi Transfer Manual BCA',
+        instructions: [
+          'Transfer sesuai nominal (hingga 3 digit terakhir) ke rekening berikut:',
+          'Bank BCA: 1234567890',
+          `Atas Nama: ${customOwner}`,
+          'Simpan bukti transfer Anda.',
+          'Konfirmasi pembayaran melalui WhatsApp atau unggah bukti di halaman status.'
+        ]
+      },
+      bri: {
+        badge: 'BRI',
+        title: 'BRI (Transfer Manual)',
+        number: '9876543210',
+        name: customOwner,
+        instructionTitle: 'Instruksi Transfer Manual BRI',
+        instructions: [
+          'Transfer sesuai nominal (hingga 3 digit terakhir) ke rekening berikut:',
+          'Bank BRI: 9876543210',
+          `Atas Nama: ${customOwner}`,
+          'Simpan bukti transfer Anda.',
+          'Konfirmasi pembayaran melalui WhatsApp atau unggah bukti di halaman status.'
+        ]
+      },
+      dana: {
+        badge: 'DANA',
+        title: 'DANA (E-Wallet)',
+        number: '081234567890',
+        name: customOwner,
+        instructionTitle: 'Instruksi Transfer DANA',
+        instructions: [
+          'Transfer/Kirim sesuai nominal (hingga 3 digit terakhir) ke akun DANA berikut:',
+          'No DANA: 081234567890',
+          `Atas Nama: ${customOwner}`,
+          'Simpan bukti transfer/transaksi Anda.',
+          'Konfirmasi pembayaran melalui WhatsApp atau unggah bukti di halaman status.'
+        ]
+      }
+    };
+
+    if (selectedField?.paymentMethods && selectedField.paymentMethods.length > 0) {
+      selectedField.paymentMethods.forEach((pm, idx) => {
+        const pmOwner = pm.bankOwner;
+
+        let badgeText = (pm.bankName || '').toUpperCase();
+        if (badgeText.includes('BCA')) badgeText = 'BCA';
+        else if (badgeText.includes('BRI')) badgeText = 'BRI';
+        else if (badgeText.includes('DANA')) badgeText = 'DANA';
+        else if (badgeText.includes('MANDIRI')) badgeText = 'MANDIRI';
+        else if (badgeText.includes('BSI')) badgeText = 'BSI';
+        else badgeText = badgeText.split(' ')[0] || 'TRANSFER';
+
+        const isEwallet = /dana|gopay|ovo|shopee|linkaja/i.test(pm.bankName);
+        const methodType = isEwallet ? 'E-WALLET' : 'TRANSFER MANUAL';
+        const instructionPrefix = isEwallet ? 'Transfer DANA/E-Wallet' : 'Transfer Manual';
+
+        accountMap[`custom_admin_${idx}`] = {
+          badge: badgeText,
+          methodType: methodType,
+          title: pm.bankName || 'Bank Transfer',
+          number: pm.bankAccount || '-',
+          name: pmOwner,
+          instructionTitle: `Instruksi ${instructionPrefix} ${badgeText}`,
+          instructions: [
+            'Transfer sesuai nominal (hingga 3 digit terakhir) ke rekening berikut:',
+            `${pm.bankName || 'Bank'}: ${pm.bankAccount || '-'}`,
+            `Atas Nama: ${pmOwner}`,
+            'Simpan bukti transfer Anda.',
+            'Konfirmasi pembayaran melalui WhatsApp atau unggah bukti di halaman status.'
+          ]
+        };
+      });
+    }
+
+    const currentAccount = accountMap[selectedPaymentMethod] || accountMap['bca'] || Object.values(accountMap)[0];
+
+    if (checkoutStep === 'select_method') {
+      return (
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 animate-fade-in">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-4 sm:mb-6 bg-white p-3 sm:p-4 rounded-2xl border border-gray-100 shadow-sm gap-2">
+            <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+              <button onClick={() => setCurrentView('detail')} className="p-2 bg-slate-50 hover:bg-slate-100 rounded-full border border-gray-200 text-gray-600 transition-colors flex-shrink-0">
+                <ArrowLeft className="w-4 h-4 sm:w-5 h-5" />
+              </button>
+              <h1 className="text-sm sm:text-xl font-extrabold text-gray-900 truncate">Pilih Metode Pembayaran</h1>
+            </div>
+            <span className="bg-amber-50 text-amber-600 border border-amber-200 px-2.5 py-1 rounded-full text-[10px] sm:text-xs font-bold inline-flex items-center gap-1 sm:gap-1.5 shadow-sm flex-shrink-0">
+              <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 animate-spin" /> Menunggu
+            </span>
+          </div>
+
+          {/* Rincian Sewa - PLACED AT THE VERY TOP */}
+          <div className="bg-white rounded-3xl shadow-sm p-5 sm:p-6 border border-gray-100 mb-6">
+            <h2 className="text-sm sm:text-base font-extrabold text-gray-800 mb-4 pb-3 border-b border-gray-100 flex items-center gap-2">
+              <FileText className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-emerald-500" /> Rincian Sewa
+            </h2>
+            <div className="flex items-center mb-4 sm:mb-5">
+              <img src={selectedField?.images[0]} alt="Thumb" className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl object-cover mr-4 shadow-sm" />
               <div>
-                <p className="font-bold text-gray-900 text-sm leading-tight mb-1">{selectedField?.name}</p>
-                <div className="text-xs font-bold text-gray-600">
+                <p className="font-extrabold text-gray-900 text-xs sm:text-sm leading-tight mb-1">{selectedField?.name}</p>
+                <div className="text-[10px] sm:text-xs font-bold text-gray-500">
                   <span className="text-emerald-600">{new Date(bookingDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}</span> | {timeString}
                 </div>
               </div>
             </div>
 
             <div className="space-y-3 pt-3 border-t border-gray-100">
-              <div className="flex justify-between text-sm font-medium text-gray-600">
+              <div className="flex justify-between text-[11px] sm:text-sm font-medium text-gray-600">
                 <span>Sewa Lapang ({duration} Jam)</span>
                 <span className="font-bold text-gray-800">Rp {totalFieldPrice.toLocaleString('id-ID')}</span>
               </div>
-              <div className="flex justify-between text-sm font-medium text-gray-600">
-                <span>Biaya Layanan</span>
-                <span className="font-bold text-gray-800">Rp {serviceFee.toLocaleString('id-ID')}</span>
-              </div>
-              <div className="flex justify-between items-center pt-3 mt-1 bg-emerald-50 p-3 rounded-xl border border-emerald-100">
-                <span className="font-bold text-emerald-900">Total Tagihan</span>
-                <span className="font-extrabold text-xl text-emerald-600">Rp {finalTotal.toLocaleString('id-ID')}</span>
+
+              <div className="flex justify-between items-center pt-3 mt-1 bg-emerald-50/50 p-3 rounded-xl border border-emerald-100">
+                <span className="font-bold text-emerald-900 text-xs sm:text-sm">Total Tagihan</span>
+                <span className="font-extrabold text-base sm:text-xl text-emerald-600">Rp {finalTotal.toLocaleString('id-ID')}</span>
               </div>
             </div>
           </div>
 
-          <div className="space-y-5">
-            <div className="bg-white rounded-3xl shadow-sm p-5 border border-gray-100">
-              <h2 className="text-base font-bold text-gray-800 mb-4">Metode Pembayaran (Transfer)</h2>
+          {/* Payment Method Selector Styled Like a Premium Input Dropdown */}
+          <div className="bg-white rounded-3xl shadow-sm p-6 border border-gray-100 mb-6">
+            <label className="block text-xs sm:text-sm font-extrabold text-gray-700 mb-3 uppercase tracking-wider">
+              Pilih Metode Pembayaran
+            </label>
+            <div className="space-y-4">
+              {(() => {
+                if (!selectedField?.paymentMethods || selectedField.paymentMethods.length === 0) {
+                  return (
+                    <div className="p-4 text-center border-2 border-dashed border-gray-200 rounded-xl text-gray-500 bg-gray-50/50">
+                      <p className="font-bold text-sm mb-1">Metode Pembayaran Belum Tersedia</p>
+                      <p className="text-xs">Admin belum mengatur rekening untuk lapangan ini.</p>
+                    </div>
+                  );
+                }
 
-              {/* Opsi E-Wallets dan Bank */}
-              <div className="space-y-3">
-                <div className="bg-blue-50 rounded-xl p-4 border border-blue-100 flex justify-between items-center">
-                  <div>
-                    <p className="text-[10px] text-blue-600 font-bold uppercase mb-1">Bank BCA</p>
-                    <p className="font-mono text-lg font-extrabold text-blue-900 tracking-tight">123 456 7890</p>
-                    <p className="text-xs font-medium text-blue-800 mt-1">PT Booking Lapang</p>
-                  </div>
-                  <button onClick={() => handleCopy('1234567890', 'bca')} className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center transition-colors ${copiedBCA ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700 hover:bg-blue-200 active:scale-95'}`}>
-                    {copiedBCA ? <><CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Tersalin</> : 'Salin'}
-                  </button>
-                </div>
+                const vaMethods = [];
+                const ewalletMethods = [];
+                const otherMethods = [];
 
-                <div className="bg-emerald-50 rounded-xl p-4 border border-emerald-100 flex justify-between items-center">
-                  <div>
-                    <p className="text-[10px] text-emerald-600 font-bold uppercase mb-1">GoPay / DANA / OVO</p>
-                    <p className="font-mono text-lg font-extrabold text-emerald-900 tracking-tight">0812 3456 7890</p>
-                    <p className="text-xs font-medium text-emerald-800 mt-1">Admin Lapangan</p>
-                  </div>
-                  <button onClick={() => handleCopy('081234567890', 'ewallet')} className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center transition-colors ${copiedEwallet ? 'bg-emerald-200 text-emerald-800' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 active:scale-95'}`}>
-                    {copiedEwallet ? <><CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Tersalin</> : 'Salin'}
-                  </button>
-                </div>
+                selectedField.paymentMethods.forEach((pm, idx) => {
+                  const n = (pm.bankName || '').toLowerCase();
+                  const item = { ...pm, idx };
+                  if (n.includes('dana') || n.includes('gopay') || n.includes('ovo') || n.includes('shopee') || n.includes('linkaja')) {
+                    ewalletMethods.push(item);
+                  } else if (n.includes('bca') || n.includes('bri') || n.includes('bni') || n.includes('mandiri') || n.includes('bsi') || n.includes('bank') || n.includes('virtual account')) {
+                    vaMethods.push(item);
+                  } else {
+                    otherMethods.push(item);
+                  }
+                });
+
+                const renderGroup = (title, icon, items) => {
+                  if (items.length === 0) return null;
+                  const isExpanded = expandedPaymentGroups[title] !== false;
+                  return (
+                    <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
+                      <div
+                        className="flex items-center justify-between p-3.5 bg-slate-50 border-b border-gray-200 cursor-pointer hover:bg-slate-100 transition-colors"
+                        onClick={() => togglePaymentGroup(title)}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-lg bg-white shadow-sm border border-gray-200 flex items-center justify-center text-emerald-600">
+                            {icon}
+                          </div>
+                          <span className="font-extrabold text-sm text-gray-800">{title}</span>
+                        </div>
+                        <svg className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? '' : 'rotate-180'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                      </div>
+                      {isExpanded && (
+                        <div className="p-2 space-y-1">
+                          {items.map((pm) => {
+                            const n = (pm.bankName || '').toLowerCase();
+                            let logo = null;
+                            if (n.includes('bca')) logo = 'https://upload.wikimedia.org/wikipedia/commons/5/5c/Bank_Central_Asia.svg';
+                            else if (n.includes('bri')) logo = 'https://upload.wikimedia.org/wikipedia/commons/2/2e/BRI_2020.svg';
+                            else if (n.includes('dana')) logo = 'https://upload.wikimedia.org/wikipedia/commons/7/72/Logo_dana_blue.svg';
+                            else if (n.includes('mandiri')) logo = 'https://upload.wikimedia.org/wikipedia/commons/a/ad/Bank_Mandiri_logo_2016.svg';
+                            else if (n.includes('bni')) logo = 'https://upload.wikimedia.org/wikipedia/id/5/55/BNI_logo.svg';
+                            else if (n.includes('ovo')) logo = 'https://upload.wikimedia.org/wikipedia/commons/e/e1/OVO_logo.svg';
+                            else if (n.includes('gopay')) logo = 'https://upload.wikimedia.org/wikipedia/commons/8/86/Gopay_logo.svg';
+                            else if (n.includes('shopee')) logo = 'https://upload.wikimedia.org/wikipedia/commons/f/fe/Shopee.svg';
+                            else if (n.includes('bsi')) logo = 'https://upload.wikimedia.org/wikipedia/commons/a/a0/Bank_Syariah_Indonesia.svg';
+
+                            return (
+                              <label key={pm.idx} className={`flex items-center p-3 border rounded-xl cursor-pointer transition-all ${selectedPaymentMethod === `custom_admin_${pm.idx}` ? 'border-emerald-500 bg-emerald-50/30' : 'border-transparent hover:bg-gray-50'}`}>
+                                <input type="radio" name="paymentMethod" value={`custom_admin_${pm.idx}`} checked={selectedPaymentMethod === `custom_admin_${pm.idx}`} onChange={() => setSelectedPaymentMethod(`custom_admin_${pm.idx}`)} className="hidden" />
+                                <div className="w-12 h-10 bg-white border border-gray-100 shadow-sm rounded-lg flex items-center justify-center mr-3 p-1.5 relative overflow-hidden shrink-0">
+                                  {logo ? (
+                                    <img src={logo} alt="Logo" className="max-w-full max-h-full object-contain" />
+                                  ) : (
+                                    <span className="font-extrabold text-slate-300 text-[9px]">BANK</span>
+                                  )}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-extrabold text-sm text-gray-800 truncate">{pm.bankName || 'Bank Transfer'}</p>
+                                </div>
+                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ml-3 ${selectedPaymentMethod === `custom_admin_${pm.idx}` ? 'border-emerald-500' : 'border-gray-300'}`}>
+                                  {selectedPaymentMethod === `custom_admin_${pm.idx}` && <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full"></div>}
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                };
+
+                return (
+                  <>
+                    {renderGroup("Virtual Account", <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path></svg>, vaMethods)}
+                    {renderGroup("E-Wallet", <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>, ewalletMethods)}
+                    {renderGroup("Lainnya", <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>, otherMethods)}
+                  </>
+                );
+              })()}
+            </div>
+
+            {/* Premium Button to Proceed to Step 2 */}
+            <button
+              onClick={handleProceedToPayment}
+              disabled={!selectedPaymentMethod || isSubmittingMethod}
+              className={`w-full py-4 mt-5 rounded-2xl font-extrabold text-white text-base transition-all shadow-md flex items-center justify-center gap-2 ${selectedPaymentMethod && !isSubmittingMethod
+                ? 'bg-emerald-600 hover:bg-emerald-700 active:scale-95 cursor-pointer shadow-emerald-600/20'
+                : 'bg-gray-200 shadow-none cursor-not-allowed text-gray-400'
+                }`}
+            >
+              {isSubmittingMethod ? (
+                <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              ) : (
+                <>
+                  Lanjutkan Pembayaran
+                  <ChevronRight className="w-5 h-5" />
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 animate-fade-in">
+        {/* Header - Back button returns to Method Selection */}
+        <div className="flex items-center justify-between mb-4 sm:mb-6 bg-white p-3 sm:p-4 rounded-2xl border border-gray-100 shadow-sm gap-2">
+          <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+            <button onClick={() => setCheckoutStep('select_method')} className="p-2 bg-slate-50 hover:bg-slate-100 rounded-full border border-gray-200 text-gray-600 transition-colors flex-shrink-0">
+              <ArrowLeft className="w-4 h-4 sm:w-5 h-5" />
+            </button>
+            <h1 className="text-sm sm:text-xl font-extrabold text-gray-900 truncate">Selesaikan Pembayaran</h1>
+          </div>
+          <span className="bg-amber-50 text-amber-600 border border-amber-200 px-2.5 py-1 rounded-full text-[10px] sm:text-xs font-bold inline-flex items-center gap-1 sm:gap-1.5 shadow-sm flex-shrink-0">
+            <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 animate-spin" /> Menunggu
+          </span>
+        </div>
+
+        {/* NOTICE: The Rincian Sewa component is COMPLETELY REMOVED from this screen as requested. */}
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Main Payment Details - Green / Emerald themed */}
+          <div className="bg-white rounded-3xl shadow-sm p-4 sm:p-6 border border-gray-100 flex flex-col items-center self-start">
+
+            {/* Bank Header Box */}
+            <div className="flex items-center gap-2 mb-3 self-start w-full border-b border-gray-50 pb-2">
+              <div className="bg-emerald-50 border border-emerald-100 rounded-lg px-2.5 py-1 text-emerald-700 font-extrabold text-[10px] sm:text-xs">
+                {currentAccount.badge}
+              </div>
+              <p className="font-extrabold text-gray-800 text-sm sm:text-base">TRANSFER VIA {currentAccount.title}</p>
+            </div>
+
+            {/* Nominal yang harus dibayar Box */}
+            <div className="w-full mb-3 text-center border-2 border-dashed bg-emerald-50/10 border-emerald-100 p-3 sm:p-4 rounded-2xl">
+              <p className="text-[10px] sm:text-xs text-gray-400 font-extrabold tracking-wider uppercase mb-0.5">Nominal Yang Harus Dibayar</p>
+              <p className="text-2xl sm:text-3xl font-extrabold text-emerald-600">
+                Rp {finalTotal.toLocaleString('id-ID')}
+              </p>
+            </div>
+
+            <p className="text-xs font-bold text-slate-500 mb-1.5 self-start">Transfer ke rekening berikut:</p>
+
+            {/* Account Card Details - Emerald Green themed */}
+            <div className="w-full border-2 border-emerald-100 bg-emerald-50/20 rounded-2xl p-3 sm:p-4 text-center flex flex-col items-center relative mb-3">
+              <span className="text-[9px] sm:text-[20px] text-emerald-600 font-extrabold tracking-widest uppercase mb-1">{currentAccount.badge} ({currentAccount.methodType || 'TRANSFER MANUAL'})</span>
+              <span className="text-sm sm:text-base font-extrabold text-slate-800 mb-2">{currentAccount.name}</span>
+
+              <div className="w-full bg-white border border-emerald-100 rounded-xl py-2 px-3 sm:py-3 sm:px-4 font-mono text-lg sm:text-xl font-extrabold tracking-widest text-emerald-600 shadow-inner mb-3 flex items-center justify-center">
+                {currentAccount.number}
+              </div>
+
+              <div className="flex gap-2 w-full">
+                <button
+                  onClick={() => handleCopy(currentAccount.number, 'bca')}
+                  className={`flex-grow flex items-center justify-center gap-1 px-1.5 py-2.5 sm:px-3 sm:py-2.5 rounded-xl font-extrabold text-[10px] sm:text-xs transition-all active:scale-95 shadow-sm border border-transparent whitespace-nowrap ${copiedBCA ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'
+                    }`}
+                >
+                  {copiedBCA ? <CheckCircle2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> : <FileText className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
+                  {copiedBCA ? 'Tersalin' : 'Salin Rekening'}
+                </button>
+                <button
+                  onClick={() => handleCopy(finalTotal.toString(), 'nominal')}
+                  className={`flex-grow flex items-center justify-center gap-1 px-1.5 py-2.5 sm:px-3 sm:py-2.5 rounded-xl font-extrabold text-[10px] sm:text-xs transition-all active:scale-95 border whitespace-nowrap ${copiedNominal ? 'bg-emerald-100 text-emerald-700 border-transparent' : 'bg-white hover:bg-emerald-50/30 text-emerald-700 border-emerald-200 shadow-sm cursor-pointer'
+                    }`}
+                >
+                  {copiedNominal ? <CheckCircle2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> : <FileText className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
+                  {copiedNominal ? 'Tersalin' : 'Salin Nominal'}
+                </button>
               </div>
             </div>
 
-            <div className="bg-white rounded-3xl shadow-sm p-5 border border-gray-100">
-              <h2 className="text-base font-bold text-gray-800 mb-3">Upload Bukti Transfer</h2>
-              <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept="image/*" />
 
-              <div onClick={() => !uploadedReceipt && fileInputRef.current.click()} className={`border-2 border-dashed rounded-2xl p-6 text-center transition-colors ${uploadedReceipt ? 'border-emerald-500 bg-emerald-50' : 'border-gray-300 bg-gray-50 cursor-pointer hover:bg-gray-100'}`}>
+
+            {/* Konfirmasi Pembayaran Section */}
+            <div className="w-full border-t border-gray-100 pt-4">
+              <h3 className="font-extrabold text-gray-800 text-sm sm:text-base mb-1 flex items-center gap-2">
+                <Upload className="w-4 h-4 text-emerald-500" /> Konfirmasi Pembayaran
+              </h3>
+              <p className="text-xs text-gray-500 leading-relaxed mb-3">
+                Silakan unggah foto bukti transfer ATM, Mobile Banking, atau Internet Banking Anda di bawah ini:
+              </p>
+
+              <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept="image/*" />
+              <div
+                onClick={() => !uploadedReceipt && fileInputRef.current.click()}
+                className={`border-2 border-dashed rounded-2xl p-4 sm:p-5 text-center transition-all ${uploadedReceipt
+                  ? 'border-emerald-500 bg-emerald-50/50'
+                  : 'border-emerald-100 bg-slate-50 hover:bg-emerald-50/20 cursor-pointer'
+                  }`}
+              >
                 {uploadedReceipt ? (
                   <div className="flex flex-col items-center">
                     {receiptPreviewUrl ? (
-                      <div className="relative mb-3 cursor-pointer group rounded-xl shadow-sm border border-emerald-200 overflow-hidden" onClick={(e) => { e.stopPropagation(); setIsPreviewModalOpen(true); }}>
-                        <img src={receiptPreviewUrl} alt="Preview" className="h-24 w-24 object-cover group-hover:scale-105 transition-transform" />
+                      <div className="relative mb-2 cursor-pointer group rounded-xl shadow-sm border border-emerald-200 overflow-hidden" onClick={(e) => { e.stopPropagation(); setIsPreviewModalOpen(true); }}>
+                        <img src={receiptPreviewUrl} alt="Preview" className="h-20 w-20 object-cover group-hover:scale-105 transition-transform" />
                         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
-                          <Search className="w-6 h-6 text-white" />
+                          <Search className="w-5 h-5 text-white" />
                         </div>
                       </div>
                     ) : (
-                      <CheckCircle2 className="h-10 w-10 text-emerald-500 mb-2" />
+                      <CheckCircle2 className="h-8 w-8 text-emerald-500 mb-1.5" />
                     )}
-                    <p className="font-bold text-emerald-900 text-sm">Bukti Terupload</p>
-                    <p className="text-xs text-emerald-700 mt-1 truncate max-w-[200px]">{uploadedFileName}</p>
-                    <button onClick={(e) => { e.stopPropagation(); setUploadedReceipt(false); setReceiptPreviewUrl(''); }} className="mt-3 text-xs text-red-500 font-bold bg-red-50 px-3 py-1.5 rounded-full hover:bg-red-100">Ganti File</button>
+                    <p className="font-bold text-emerald-900 text-xs sm:text-sm">Bukti Terupload</p>
+                    <p className="text-[10px] sm:text-xs text-emerald-700 mt-0.5 truncate max-w-[200px]">{uploadedFileName}</p>
+                    <button onClick={(e) => { e.stopPropagation(); setUploadedReceipt(false); setReceiptPreviewUrl(''); }} className="mt-2 text-[10px] text-red-500 font-bold bg-red-50 px-2.5 py-1 rounded-full hover:bg-red-100 cursor-pointer">Ganti File</button>
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center">
-                    <Upload className="h-8 w-8 text-emerald-500 mb-3" />
-                    <p className="font-bold text-gray-700 text-sm">Ketuk untuk upload</p>
-                    <p className="text-[10px] text-gray-400 font-medium mt-1">Format: JPG, PNG</p>
+                  <div className="flex flex-col items-center py-1">
+                    <ImageIcon className="h-8 w-8 text-slate-400 mb-2" />
+                    <p className="font-bold text-gray-700 text-xs sm:text-sm">Pilih Foto Bukti</p>
+                    <p className="text-[9px] text-gray-400 font-medium mt-0.5">JPG, PNG, atau WEBP</p>
                   </div>
                 )}
               </div>
 
-              <button onClick={submitCheckout} disabled={!uploadedReceipt}
-                className={`w-full mt-5 py-4 rounded-xl font-extrabold text-white text-base transition-all shadow-md ${uploadedReceipt ? 'bg-emerald-600 active:scale-95' : 'bg-gray-300'
+              {/* Warning Notice Box */}
+              <div className="mt-3 bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2 text-amber-800">
+                <AlertTriangle className="w-4 h-4 mt-0.5 text-amber-600 flex-shrink-0" />
+                <p className="text-xs font-semibold leading-relaxed">
+                  Lakukan pembayaran sebelum <span className="font-extrabold text-amber-700">24 jam</span> untuk menghindari pembatalan otomatis. ID: <span className="font-mono text-amber-900 font-bold">ORD-{selectedField.id}-{bookingDate.replace(/-/g, '')}-{startHour}</span>
+                </p>
+              </div>
+
+            </div>
+          </div>
+
+          {/* Instruksi Card - Emerald themed */}
+          <div className="space-y-6">
+            <div className="bg-white rounded-3xl shadow-sm p-5 sm:p-6 border border-gray-100">
+              <h2 className="text-sm sm:text-base font-extrabold text-gray-800 mb-4 pb-3 border-b border-gray-100 flex items-center gap-2">
+                <FileText className="w-4.5 h-4.5 text-emerald-600" /> Instruksi Pembayaran
+              </h2>
+
+              <div className="border border-emerald-100 bg-emerald-50/10 rounded-2xl p-4 sm:p-5">
+                <span className="text-xs font-extrabold text-emerald-700 block mb-3">{currentAccount.instructionTitle}</span>
+                <ol className="space-y-3.5 text-xs text-gray-600 font-bold list-decimal pl-4 leading-relaxed">
+                  {currentAccount.instructions.map((ins, i) => {
+                    if (ins.includes('Atas Nama:')) {
+                      const parts = ins.split(': ');
+                      return (
+                        <li key={i}>
+                          {parts[0]}: <span className="font-bold text-slate-800">{parts.slice(1).join(': ')}</span>
+                        </li>
+                      );
+                    }
+                    if (ins.includes(': ') && !ins.includes('WhatsApp')) {
+                      const parts = ins.split(': ');
+                      return (
+                        <li key={i}>
+                          {parts[0]}: <span className="font-bold text-slate-800 font-mono">{parts.slice(1).join(': ')}</span>
+                        </li>
+                      );
+                    }
+                    if (ins.includes('nominal')) {
+                      return (
+                        <li key={i}>
+                          Transfer sesuai nominal <span className="text-emerald-600 font-extrabold">(hingga 3 digit terakhir)</span> ke rekening berikut:
+                        </li>
+                      );
+                    }
+                    return <li key={i}>{ins}</li>;
+                  })}
+                </ol>
+              </div>
+
+              {/* Kirim Bukti Pembayaran Button */}
+              <button
+                onClick={submitCheckout}
+                disabled={!uploadedReceipt}
+                className={`w-full mt-6 py-4 rounded-xl font-extrabold text-white text-base transition-all shadow-md flex items-center justify-center gap-2 ${uploadedReceipt
+                  ? 'bg-emerald-600 hover:bg-emerald-700 active:scale-95 cursor-pointer shadow-emerald-600/20'
+                  : 'bg-gray-300 shadow-none cursor-not-allowed'
                   }`}
               >
+                <CheckCircle2 className="w-5 h-5" />
                 Kirim Bukti Pembayaran
+              </button>
+
+              {/* Kembali ke Beranda Button */}
+              <button
+                onClick={() => setCurrentView('home')}
+                className="w-full mt-3 bg-slate-50 hover:bg-slate-100 text-slate-600 font-bold py-3.5 rounded-xl text-sm transition-colors border border-slate-200 cursor-pointer"
+              >
+                Kembali ke Beranda
               </button>
             </div>
           </div>
@@ -1022,10 +1479,11 @@ export default function App() {
         <p className="text-sm mb-6 max-w-sm">Platform penyewaan lapangan futsal & mini soccer terbaik.</p>
 
         {/* Tombol Tautan WhatsApp */}
-        <a href="https://wa.me/6281234567890" target="_blank" rel="noopener noreferrer" className="inline-flex items-center font-bold text-white bg-green-600 px-5 py-2.5 rounded-xl hover:bg-green-500 transition-colors shadow-lg shadow-green-900/20 active:scale-95">
+        <a href="https://wa.me/6282219882449" target="_blank" rel="noopener noreferrer" className="inline-flex items-center font-bold text-white bg-green-600 px-5 py-2.5 rounded-xl hover:bg-green-500 transition-colors shadow-lg shadow-green-900/20 active:scale-95">
           <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24"><path d="M12.031 21.974c-1.332 0-2.617-.354-3.76-.985l-4.185 1.1 1.12-4.08A9.974 9.974 0 0 1 2.05 12C2.05 6.486 6.536 2 12.031 2s9.98 4.486 9.98 9.98-4.485 10.015-9.98 10.015l-.01.004-.01-.025Zm-3.415-3.084c1.03.62 2.196.953 3.415.953 4.382 0 7.95-3.568 7.95-7.95s-3.568-7.95-7.95-7.95-7.95 3.568-7.95 7.95c0 1.346.335 2.59 1.004 3.654l-.696 2.535 2.607-.69-.005-.006c-.19-.084-.38-.173-.574-.265v.006Zm8.04-5.344c-.426-.214-2.52-1.246-2.91-1.388-.39-.144-.676-.214-.96.214-.285.428-1.1 1.388-1.348 1.674-.25.285-.498.32-.924.107-.426-.214-1.8-.665-3.43-2.12-.125-.107-.24-.225-.34-.356-1.157-1.464-1.28-1.928-1.28-2.677 0-1.035.785-1.5 1.07-1.785.285-.285.57-.285.76-.285.19 0 .38.035.57.07.19.036.427.07.665.607.238.536 1.046 2.535 1.14 2.713.095.18.143.393.048.607-.095.214-.143.357-.285.57-.143.215-.31.465-.428.57-.142.108-.295.23-.13.515.165.285.736 1.214 1.578 1.963.155.138.318.267.488.384.896.657 1.637.89 1.922 1.035.285.143.45.107.618-.07.166-.18 1.14-1.14 1.425-1.534.285-.393.57-.32.96-.18.39.144 2.47 1.178 2.896 1.393.427.214.712.32 1.004.814v.005c.002-.132.002-.32-.084-.666Z" /></svg>
           Hubungi Admin (WhatsApp)
         </a>
+
 
         <div className="w-full mt-8 pt-4 border-t border-slate-800/50 text-[10px] sm:text-xs">
           &copy; {new Date().getFullYear()} Booking Lapang. All rights reserved.

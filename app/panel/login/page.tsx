@@ -2,42 +2,19 @@
 
 import { useState, useEffect } from "react";
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
-import { ShieldCheck, Mail, Lock, ArrowRight } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 
 export default function AdminLogin() {
-  const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("error") === "NotAdmin") {
       setError("Akun Google Anda tidak terdaftar sebagai Admin!");
+    } else if (params.get("error")) {
+      setError("Terjadi kesalahan saat masuk dengan Google. Silakan coba lagi.");
     }
   }, []);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError("");
-
-    const res = await signIn("admin-login", {
-      redirect: false,
-      email,
-      password,
-    });
-
-    if (res?.error) {
-      setError("Email atau password admin salah");
-    } else {
-      router.push("/panel");
-      router.refresh();
-    }
-    setLoading(false);
-  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#0f172a] p-4">
@@ -62,50 +39,9 @@ export default function AdminLogin() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div className="relative">
-              <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input
-                type="email"
-                required
-                placeholder="Email Admin"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full pl-12 pr-4 py-3.5 rounded-xl border border-gray-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all font-medium bg-gray-50 focus:bg-white text-black"
-              />
-            </div>
-
-            <div className="relative">
-              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input
-                type="password"
-                required
-                placeholder="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-12 pr-4 py-3.5 rounded-xl border border-gray-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all font-medium bg-gray-50 focus:bg-white text-black"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-[#0f172a] hover:bg-slate-800 text-white font-bold py-4 rounded-xl transition-colors flex items-center justify-center disabled:opacity-70 mt-4 cursor-pointer"
-            >
-              {loading ? "Memverifikasi..." : "Login ke Dashboard"}
-              {!loading && <ArrowRight className="w-5 h-5 ml-2 text-emerald-400" />}
-            </button>
-          </form>
-
-          <div className="relative flex py-5 items-center">
-            <div className="flex-grow border-t border-gray-200"></div>
-            <span className="flex-shrink mx-4 text-gray-400 font-bold text-xs uppercase">atau</span>
-            <div className="flex-grow border-t border-gray-200"></div>
-          </div>
-
           <button
             onClick={() => signIn("google", { callbackUrl: "/panel" })}
-            className="w-full flex items-center justify-center gap-3 bg-white hover:bg-gray-50 text-gray-700 font-bold py-3.5 px-4 rounded-xl border border-gray-200 shadow-sm transition-colors cursor-pointer"
+            className="w-full flex items-center justify-center gap-3 bg-white hover:bg-gray-50 text-gray-700 font-bold py-4 px-4 rounded-xl border-2 border-gray-200 shadow-sm hover:border-gray-300 active:scale-95 transition-all cursor-pointer"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24">
               <path
@@ -115,12 +51,6 @@ export default function AdminLogin() {
             </svg>
             Lanjutkan dengan Google
           </button>
-
-          {/* <div className="mt-8 text-center">
-            <button onClick={() => router.push('/')} className="text-sm font-bold text-gray-400 hover:text-emerald-600 transition-colors">
-              &larr; Kembali ke Website
-            </button>
-          </div> */}
         </div>
       </div>
     </div>
