@@ -107,6 +107,35 @@ export default function App() {
     window.alert = (msg) => showToast(msg, 'error');
   }, []);
 
+  // Handle mobile phone native back button (popstate)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.history.replaceState({ view: 'home' }, '');
+    }
+
+    const handlePopState = (event) => {
+      if (event.state && event.state.view) {
+        setCurrentView(event.state.view);
+      } else {
+        setCurrentView('home');
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const currentState = window.history.state;
+      if (!currentState || currentState.view !== currentView) {
+        window.history.pushState({ view: currentView }, '');
+      }
+    }
+  }, [currentView]);
+
   useEffect(() => {
     fetch('/api/fields?public=1')
       .then(res => res.json())
