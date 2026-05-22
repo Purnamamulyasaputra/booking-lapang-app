@@ -5,7 +5,8 @@ import {
   LayoutDashboard, ClipboardList, CheckCircle, XCircle,
   Menu, X, LogOut, FileImage, DollarSign, Calendar as CalendarIcon,
   Clock, ShieldCheck, MapPin, User, Search, Filter,
-  Edit, Trash2, Plus, AlertTriangle, Save, Upload, FileText, TrendingUp
+  Edit, Trash2, Plus, AlertTriangle, Save, Upload, FileText, TrendingUp,
+  ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
@@ -27,6 +28,10 @@ export default function AdminPanel() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [bookings, setBookings] = useState([]);
   const [filterStatus, setFilterStatus] = useState('semua');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterDate, setFilterDate] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [dashboardPage, setDashboardPage] = useState(1);
   const [selectedReceipt, setSelectedReceipt] = useState(null);
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -385,10 +390,33 @@ export default function AdminPanel() {
 
   const totalPendingCount = bookings.filter(b => b.status === 'menunggu').length;
 
-  const filteredBookings = bookings.filter(b => {
-    if (filterStatus === 'semua') return true;
-    return b.status === filterStatus;
+  const filteredBookingsAll = bookings.filter(b => {
+    let matchStatus = filterStatus === 'semua' ? true : b.status === filterStatus;
+
+    let matchSearch = true;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      matchSearch =
+        (b.userName && b.userName.toLowerCase().includes(q)) ||
+        (b.userPhone && b.userPhone.includes(q)) ||
+        (b.fieldName && b.fieldName.toLowerCase().includes(q));
+    }
+
+    let matchDate = true;
+    if (filterDate) {
+      matchDate = b.rawDate === filterDate;
+    }
+
+    return matchStatus && matchSearch && matchDate;
   });
+
+  const ITEMS_PER_PAGE = 10;
+  const totalPages = Math.ceil(filteredBookingsAll.length / ITEMS_PER_PAGE);
+  const filteredBookings = filteredBookingsAll.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterStatus, searchQuery, filterDate]);
 
   // --- RENDERERS ---
   const renderSidebar = () => {
@@ -410,39 +438,39 @@ export default function AdminPanel() {
           />
         )}
 
-        <aside className={`fixed top-0 left-0 h-full bg-[#0f172a] w-64 text-gray-300 flex flex-col z-50 transition-transform duration-300 ease-in-out transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:static'}`}>
-          <div className="flex items-center justify-between p-5 border-b border-slate-800">
+        <aside className={`fixed top-0 left-0 h-full bg-[#0f172a] w-56 text-gray-300 flex flex-col z-50 transition-transform duration-300 ease-in-out transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:static'}`}>
+          <div className="flex items-center justify-between p-4 border-b border-slate-800">
             <div className="flex items-center">
               <div className="bg-emerald-500 p-1.5 rounded-lg mr-2">
-                <ShieldCheck className="h-6 w-6 text-white" />
+                <ShieldCheck className="h-5 w-5 text-white" />
               </div>
-              <span className="font-extrabold text-xl text-white">Admin<span className="text-emerald-400">Panel</span></span>
+              <span className="font-extrabold text-lg text-white">Admin<span className="text-emerald-400">Panel</span></span>
             </div>
             <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden text-gray-400 hover:text-white">
-              <X className="h-6 w-6" />
+              <X className="h-5 w-5" />
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto py-6 px-3">
-            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 px-3">Menu Utama</p>
+          <div className="flex-1 overflow-y-auto py-4 px-3">
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 px-3">Menu Utama</p>
             <ul className="space-y-1">
               <li>
                 <button
                   onClick={() => { setActiveTab('dashboard'); closeSidebarMobile(); }}
-                  className={`w-full flex items-center px-3 py-3 rounded-xl font-medium transition-colors ${activeTab === 'dashboard' ? 'bg-emerald-600 text-white' : 'hover:bg-slate-800 hover:text-white'}`}
+                  className={`w-full flex items-center px-3 py-2 rounded-xl text-sm font-medium transition-colors ${activeTab === 'dashboard' ? 'bg-emerald-600 text-white' : 'hover:bg-slate-800 hover:text-white'}`}
                 >
-                  <LayoutDashboard className="h-5 w-5 mr-3" /> Dashboard
+                  <LayoutDashboard className="h-4 w-4 mr-3" /> Dashboard
                 </button>
               </li>
               <li>
                 <button
                   onClick={() => { setActiveTab('bookings'); closeSidebarMobile(); }}
-                  className={`w-full flex items-center px-3 py-3 rounded-xl font-medium transition-colors ${activeTab === 'bookings' ? 'bg-emerald-600 text-white' : 'hover:bg-slate-800 hover:text-white'}`}
+                  className={`w-full flex items-center px-3 py-2 rounded-xl text-sm font-medium transition-colors ${activeTab === 'bookings' ? 'bg-emerald-600 text-white' : 'hover:bg-slate-800 hover:text-white'}`}
                 >
-                  <ClipboardList className="h-5 w-5 mr-3" />
+                  <ClipboardList className="h-4 w-4 mr-3" />
                   Kelola Pesanan
                   {totalPendingCount > 0 && (
-                    <span className="ml-auto bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                    <span className="ml-auto bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
                       {totalPendingCount}
                     </span>
                   )}
@@ -451,34 +479,34 @@ export default function AdminPanel() {
               <li>
                 <button
                   onClick={() => { setActiveTab('fields'); closeSidebarMobile(); }}
-                  className={`w-full flex items-center px-3 py-3 rounded-xl font-medium transition-colors ${activeTab === 'fields' ? 'bg-emerald-600 text-white' : 'hover:bg-slate-800 hover:text-white'}`}
+                  className={`w-full flex items-center px-3 py-2 rounded-xl text-sm font-medium transition-colors ${activeTab === 'fields' ? 'bg-emerald-600 text-white' : 'hover:bg-slate-800 hover:text-white'}`}
                 >
-                  <MapPin className="h-5 w-5 mr-3" /> Daftar Lapangan
+                  <MapPin className="h-4 w-4 mr-3" /> Daftar Lapangan
                 </button>
               </li>
               <li>
                 <button
                   onClick={() => { setActiveTab('reports'); closeSidebarMobile(); }}
-                  className={`w-full flex items-center px-3 py-3 rounded-xl font-medium transition-colors ${activeTab === 'reports' ? 'bg-emerald-600 text-white' : 'hover:bg-slate-800 hover:text-white'}`}
+                  className={`w-full flex items-center px-3 py-2 rounded-xl text-sm font-medium transition-colors ${activeTab === 'reports' ? 'bg-emerald-600 text-white' : 'hover:bg-slate-800 hover:text-white'}`}
                 >
-                  <FileText className="h-5 w-5 mr-3" /> Laporan Harian
+                  <FileText className="h-4 w-4 mr-3" /> Laporan Harian
                 </button>
               </li>
             </ul>
           </div>
 
-          <div className="p-4 border-t border-slate-800">
-            <div className="flex items-center mb-4 px-2">
-              <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold mr-3">
+          <div className="p-3 border-t border-slate-800">
+            <div className="flex items-center mb-3 px-2">
+              <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold mr-3 text-xs">
                 {adminInitials}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-bold text-white truncate">{adminName}</p>
-                <p className="text-xs text-slate-400 truncate">{adminEmail}</p>
+                <p className="text-xs font-bold text-white truncate">{adminName}</p>
+                <p className="text-[10px] text-slate-400 truncate">{adminEmail}</p>
               </div>
             </div>
-            <button onClick={() => setShowLogoutConfirm(true)} className="w-full flex items-center px-3 py-3 rounded-xl font-medium text-gray-400 hover:text-white hover:bg-slate-800 transition-colors">
-              <LogOut className="h-5 w-5 mr-3" /> Keluar (Logout)
+            <button onClick={() => setShowLogoutConfirm(true)} className="w-full flex items-center px-3 py-2 rounded-xl text-sm font-medium text-gray-400 hover:text-white hover:bg-slate-800 transition-colors">
+              <LogOut className="h-4 w-4 mr-3" /> Keluar (Logout)
             </button>
           </div>
         </aside>
@@ -486,86 +514,147 @@ export default function AdminPanel() {
     );
   };
 
-  const renderDashboard = () => (
-    <div className="animate-fade-in">
-      <h1 className="text-2xl font-extrabold text-gray-900 mb-6">Ringkasan Hari Ini</h1>
+  const renderDashboard = () => {
+    const pendingBookings = bookings.filter(b => b.status === 'menunggu');
+    const totalDashboardPages = Math.ceil(pendingBookings.length / 10);
+    const activeDashboardPage = dashboardPage > totalDashboardPages ? 1 : dashboardPage;
+    const paginatedPending = pendingBookings.slice((activeDashboardPage - 1) * 10, activeDashboardPage * 10);
 
-      {/* Stat Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
-        <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 flex items-center">
-          <div className="w-14 h-14 rounded-2xl bg-orange-50 flex items-center justify-center mr-4">
-            <ClipboardList className="h-7 w-7 text-orange-500" />
+    return (
+      <div className="animate-fade-in text-black">
+        <h1 className="text-lg font-extrabold text-gray-900 mb-4">Ringkasan Hari Ini</h1>
+
+        {/* Stat Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+          <div className="bg-white rounded-2xl p-3.5 shadow-sm border border-gray-100 flex items-center">
+            <div className="w-10 h-10 rounded-xl bg-orange-50 flex items-center justify-center mr-3 shrink-0">
+              <ClipboardList className="h-5 w-5 text-orange-500" />
+            </div>
+            <div>
+              <p className="text-[10px] font-bold text-gray-500 mb-0.5 uppercase tracking-wider">Pesanan Menunggu</p>
+              <p className="text-lg font-extrabold text-gray-900 leading-none">{dashboardPendingCount}</p>
+            </div>
           </div>
-          <div>
-            <p className="text-sm font-bold text-gray-500 mb-1">Pesanan Menunggu</p>
-            <p className="text-2xl font-extrabold text-gray-900">{dashboardPendingCount}</p>
+
+          <div className="bg-white rounded-2xl p-3.5 shadow-sm border border-gray-100 flex items-center">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center mr-3 shrink-0">
+              <CheckCircle className="h-5 w-5 text-emerald-500" />
+            </div>
+            <div>
+              <p className="text-[10px] font-bold text-gray-500 mb-0.5 uppercase tracking-wider">Pesanan Selesai</p>
+              <p className="text-lg font-extrabold text-gray-900 leading-none">{dashboardApprovedCount}</p>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl p-3.5 shadow-sm border border-gray-100 flex items-center">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center mr-3 shrink-0">
+              <DollarSign className="h-5 w-5 text-blue-500" />
+            </div>
+            <div>
+              <p className="text-[10px] font-bold text-gray-500 mb-0.5 uppercase tracking-wider">Total Pendapatan</p>
+              <p className="text-lg font-extrabold text-gray-900 leading-none">Rp {dashboardTotalRevenue.toLocaleString('id-ID')}</p>
+            </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 flex items-center">
-          <div className="w-14 h-14 rounded-2xl bg-emerald-50 flex items-center justify-center mr-4">
-            <CheckCircle className="h-7 w-7 text-emerald-500" />
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+          <div className="flex justify-between items-center mb-4 border-b border-gray-50 pb-2">
+            <h2 className="text-sm font-extrabold text-gray-900 flex items-center gap-1.5">
+              <AlertTriangle className="w-4 h-4 text-orange-500" /> Pesanan Perlu Konfirmasi
+            </h2>
+            <button onClick={() => setActiveTab('bookings')} className="text-xs font-bold text-emerald-600 hover:text-emerald-700 transition-colors">
+              Lihat Semua
+            </button>
           </div>
-          <div>
-            <p className="text-sm font-bold text-gray-500 mb-1">Pesanan Selesai</p>
-            <p className="text-2xl font-extrabold text-gray-900">{dashboardApprovedCount}</p>
-          </div>
-        </div>
 
-        <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 flex items-center">
-          <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center mr-4">
-            <DollarSign className="h-7 w-7 text-blue-500" />
-          </div>
-          <div>
-            <p className="text-sm font-bold text-gray-500 mb-1">Total Pendapatan</p>
-            <p className="text-2xl font-extrabold text-gray-900">Rp {dashboardTotalRevenue.toLocaleString('id-ID')}</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-lg font-bold text-gray-900">Pesanan Perlu Konfirmasi</h2>
-          <button onClick={() => setActiveTab('bookings')} className="text-sm font-bold text-emerald-600 hover:text-emerald-700">Lihat Semua</button>
-        </div>
-
-        <div className="space-y-4">
-          {bookings.filter(b => b.status === 'menunggu').length === 0 ? (
-            <div className="text-center py-8 text-gray-500 text-sm">Tidak ada pesanan baru yang perlu dikonfirmasi.</div>
-          ) : (
-            bookings.filter(b => b.status === 'menunggu').slice(0, 3).map(bkg => (
-              <div key={bkg.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                <div className="mb-3 sm:mb-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs font-bold text-gray-500">{bkg.id}</span>
-                    <span className="text-[10px] font-bold bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">{bkg.submitTime}</span>
+          <div className="space-y-2">
+            {pendingBookings.length === 0 ? (
+              <div className="text-center py-6 text-gray-500 text-xs font-bold">Tidak ada pesanan baru yang perlu dikonfirmasi.</div>
+            ) : (
+              paginatedPending.map(bkg => (
+                <div key={bkg.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-3 bg-gray-50 rounded-xl border border-gray-100 gap-2 hover:bg-slate-100/50 transition-colors">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <span className="text-[9px] font-extrabold text-gray-500 uppercase tracking-wider">ID: {bkg.id}</span>
+                      <span className="text-[8px] font-bold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-md">{bkg.submitTime}</span>
+                    </div>
+                    <p className="text-xs font-extrabold text-gray-900 truncate">
+                      {bkg.userName} <span className="text-gray-500 font-bold text-[10px] ml-0.5">({bkg.fieldName})</span>
+                    </p>
                   </div>
-                  <p className="font-bold text-gray-900">{bkg.userName} <span className="text-gray-400 font-normal">({bkg.fieldName})</span></p>
+                  <button
+                    onClick={() => setSelectedReceipt(bkg)}
+                    className="w-full sm:w-auto px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] sm:text-xs font-bold rounded-lg transition-colors shadow-sm cursor-pointer whitespace-nowrap text-center"
+                  >
+                    Cek Pembayaran
+                  </button>
                 </div>
-                <button
-                  onClick={() => setSelectedReceipt(bkg)}
-                  className="w-full sm:w-auto px-4 py-2 bg-emerald-600 text-white text-sm font-bold rounded-xl hover:bg-emerald-700 transition-colors shadow-sm"
-                >
-                  Cek Pembayaran
-                </button>
-              </div>
-            ))
+              ))
+            )}
+          </div>
+
+          {/* Pagination Controls for Dashboard Pending List */}
+          {totalDashboardPages > 1 && (
+            <div className="flex justify-center items-center mt-4 gap-2 border-t border-gray-50 pt-3">
+              <button
+                onClick={() => setDashboardPage(p => Math.max(1, p - 1))}
+                disabled={activeDashboardPage === 1}
+                className="p-1 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                title="Halaman Sebelumnya"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+              <span className="text-[10px] font-bold text-gray-500 mx-1">
+                Halaman {activeDashboardPage} dari {totalDashboardPages}
+              </span>
+              <button
+                onClick={() => setDashboardPage(p => Math.min(totalDashboardPages, p + 1))}
+                disabled={activeDashboardPage === totalDashboardPages}
+                className="p-1 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                title="Halaman Selanjutnya"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
           )}
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderBookingsList = () => (
     <div className="animate-fade-in">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-        <h1 className="text-2xl font-extrabold text-gray-900">Kelola Pesanan</h1>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-5 gap-4">
+        <h1 className="text-xl font-extrabold text-gray-900">Kelola Pesanan</h1>
 
-        {/* Filter */}
-        <div className="flex items-center bg-white border border-gray-200 rounded-xl p-1 shadow-sm w-full sm:w-auto">
-          <button onClick={() => setFilterStatus('semua')} className={`flex-1 sm:flex-none px-4 py-1.5 text-sm font-bold rounded-lg transition-colors ${filterStatus === 'semua' ? 'bg-slate-100 text-slate-800' : 'text-gray-500 hover:text-gray-700'}`}>Semua</button>
-          <button onClick={() => setFilterStatus('menunggu')} className={`flex-1 sm:flex-none px-4 py-1.5 text-sm font-bold rounded-lg transition-colors ${filterStatus === 'menunggu' ? 'bg-orange-100 text-orange-800' : 'text-gray-500 hover:text-gray-700'}`}>Menunggu</button>
-          <button onClick={() => setFilterStatus('dikonfirmasi')} className={`flex-1 sm:flex-none px-4 py-1.5 text-sm font-bold rounded-lg transition-colors ${filterStatus === 'dikonfirmasi' ? 'bg-emerald-100 text-emerald-800' : 'text-gray-500 hover:text-gray-700'}`}>Selesai</button>
+        {/* Filter and Search Container */}
+        <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+          {/* Search Input */}
+          <div className="relative w-full sm:w-auto">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Cari nama, hp, atau lapangan..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full sm:w-64 pl-9 pr-4 py-1.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all text-black"
+            />
+          </div>
+
+          {/* Date Filter Input */}
+          <input
+            type="date"
+            value={filterDate}
+            onChange={(e) => setFilterDate(e.target.value)}
+            className="w-full sm:w-auto px-3 py-1.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all text-gray-600 font-medium"
+          />
+
+          {/* Status Filter */}
+          <div className="flex items-center bg-white border border-gray-200 rounded-xl p-1 shadow-sm w-full sm:w-auto">
+            <button onClick={() => setFilterStatus('semua')} className={`flex-1 sm:flex-none px-3 py-1 text-xs font-bold rounded-lg transition-colors ${filterStatus === 'semua' ? 'bg-slate-100 text-slate-800' : 'text-gray-500 hover:text-gray-700'}`}>Semua</button>
+            <button onClick={() => setFilterStatus('menunggu')} className={`flex-1 sm:flex-none px-3 py-1 text-xs font-bold rounded-lg transition-colors ${filterStatus === 'menunggu' ? 'bg-orange-100 text-orange-800' : 'text-gray-500 hover:text-gray-700'}`}>Menunggu</button>
+            <button onClick={() => setFilterStatus('dikonfirmasi')} className={`flex-1 sm:flex-none px-3 py-1 text-xs font-bold rounded-lg transition-colors ${filterStatus === 'dikonfirmasi' ? 'bg-emerald-100 text-emerald-800' : 'text-gray-500 hover:text-gray-700'}`}>Selesai</button>
+          </div>
         </div>
       </div>
 
@@ -591,57 +680,57 @@ export default function AdminPanel() {
               if (bkg.status === 'ditolak') { statusColor = "bg-red-100 text-red-700 border-red-200"; StatusIcon = XCircle; }
 
               return (
-                <div key={bkg.id} className="p-4 md:p-0 md:grid grid-cols-12 gap-4 items-center md:px-4 md:py-4 hover:bg-gray-50/50 transition-colors">
+                <div key={bkg.id} className="p-3 md:p-0 md:grid grid-cols-12 gap-3 items-center md:px-3 md:py-2.5 hover:bg-gray-50/50 transition-colors border-b border-gray-50 last:border-0">
 
                   {/* Info Pelanggan */}
-                  <div className="col-span-3 mb-3 md:mb-0">
-                    <div className="flex justify-between md:block mb-1">
-                      <div className={`md:hidden flex items-center px-2 py-0.5 rounded-md border text-[10px] font-bold ${statusColor}`}>
-                        <StatusIcon className="w-3 h-3 mr-1" /> {bkg.status.toUpperCase()}
+                  <div className="col-span-3 mb-2 md:mb-0">
+                    <div className="flex justify-between md:block mb-0.5">
+                      <div className={`md:hidden flex items-center px-1.5 py-0.5 rounded-md border text-[9px] font-bold ${statusColor}`}>
+                        <StatusIcon className="w-2.5 h-2.5 mr-1" /> {bkg.status.toUpperCase()}
                       </div>
                     </div>
-                    <p className="font-bold text-gray-900 text-sm">{bkg.userName}</p>
-                    <p className="text-xs text-gray-500 flex items-center mt-0.5"><User className="w-3 h-3 mr-1" /> {bkg.userPhone}</p>
+                    <p className="font-bold text-gray-900 text-xs sm:text-sm truncate">{bkg.userName}</p>
+                    <p className="text-[10px] sm:text-xs text-gray-500 flex items-center mt-0.5"><User className="w-2.5 h-2.5 mr-1" /> {bkg.userPhone}</p>
                   </div>
 
                   {/* Info Lapangan */}
-                  <div className="col-span-3 mb-3 md:mb-0 bg-gray-50 md:bg-transparent p-3 md:p-0 rounded-xl">
-                    <p className="font-bold text-gray-800 text-sm leading-tight mb-1">{bkg.fieldName}</p>
-                    <div className="text-xs text-gray-600 font-medium flex flex-wrap items-center gap-2">
-                      <span className="flex items-center"><CalendarIcon className="w-3 h-3 mr-1 text-emerald-600" /> {bkg.date}</span>
-                      <span className="flex items-center"><Clock className="w-3 h-3 mr-1 text-emerald-600" /> {bkg.time}</span>
+                  <div className="col-span-3 mb-2 md:mb-0 bg-gray-50 md:bg-transparent p-2 md:p-0 rounded-lg">
+                    <p className="font-bold text-gray-800 text-xs sm:text-sm leading-tight mb-0.5 truncate">{bkg.fieldName}</p>
+                    <div className="text-[10px] text-gray-600 font-medium flex flex-wrap items-center gap-1.5">
+                      <span className="flex items-center"><CalendarIcon className="w-2.5 h-2.5 mr-1 text-emerald-600" /> {bkg.date}</span>
+                      <span className="flex items-center"><Clock className="w-2.5 h-2.5 mr-1 text-emerald-600" /> {bkg.time}</span>
                     </div>
                   </div>
 
                   {/* Biaya */}
-                  <div className="col-span-2 mb-3 md:mb-0 flex justify-between md:block items-center border-t border-gray-100 pt-2 md:border-0 md:pt-0">
-                    <span className="md:hidden text-xs font-medium text-gray-500">Total:</span>
-                    <p className="font-extrabold text-emerald-600">Rp {bkg.price.toLocaleString('id-ID')}</p>
+                  <div className="col-span-2 mb-2 md:mb-0 flex justify-between md:block items-center border-t border-gray-100 pt-1.5 md:border-0 md:pt-0">
+                    <span className="md:hidden text-[10px] font-medium text-gray-500">Total:</span>
+                    <p className="font-extrabold text-emerald-600 text-xs sm:text-sm">Rp {bkg.price.toLocaleString('id-ID')}</p>
                   </div>
 
                   {/* Status (Desktop) */}
                   <div className="col-span-2 hidden md:flex">
-                    <div className={`inline-flex items-center px-2.5 py-1 rounded-lg border text-xs font-bold ${statusColor}`}>
-                      <StatusIcon className="w-3.5 h-3.5 mr-1.5" />
+                    <div className={`inline-flex items-center px-2 py-0.5 rounded-md border text-[10px] font-bold ${statusColor}`}>
+                      <StatusIcon className="w-3 h-3 mr-1" />
                       {bkg.status.charAt(0).toUpperCase() + bkg.status.slice(1)}
                     </div>
                   </div>
 
                   {/* Action */}
-                  <div className="col-span-2 md:text-center mt-2 md:mt-0">
+                  <div className="col-span-2 md:text-center mt-1 md:mt-0">
                     {bkg.status === 'menunggu' ? (
                       <button
                         onClick={() => setSelectedReceipt(bkg)}
-                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl text-xs font-bold shadow-sm flex items-center justify-center transition-colors"
+                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1.5 rounded-lg text-[10px] sm:text-xs font-bold shadow-sm flex items-center justify-center transition-colors"
                       >
-                        <FileImage className="w-4 h-4 mr-1.5" /> Validasi Pembayaran
+                        <FileImage className="w-3.5 h-3.5 mr-1" /> Validasi Pembayaran
                       </button>
                     ) : (
                       <button
                         onClick={() => setSelectedReceipt(bkg)}
-                        className="w-full bg-white border-2 border-gray-200 hover:border-emerald-300 text-gray-700 hover:text-emerald-700 px-3 py-2 rounded-xl text-xs font-bold transition-colors flex items-center justify-center"
+                        className="w-full bg-white border border-gray-200 hover:border-emerald-300 text-gray-700 hover:text-emerald-700 px-2.5 py-1.5 rounded-lg text-[10px] sm:text-xs font-bold transition-colors flex items-center justify-center shadow-sm"
                       >
-                        <Search className="w-4 h-4 mr-1.5" /> Lihat Detail
+                        <Search className="w-3.5 h-3.5 mr-1" /> Lihat Detail
                       </button>
                     )}
                   </div>
@@ -652,18 +741,43 @@ export default function AdminPanel() {
           )}
         </div>
       </div>
+
+      {/* Pagination Controls */}
+      {totalPages > 1 && (
+        <div className="flex justify-center items-center mt-6 gap-2">
+          <button
+            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+            disabled={currentPage === 1}
+            className="p-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            title="Halaman Sebelumnya"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <span className="text-xs font-bold text-gray-500 mx-2">
+            Halaman {currentPage} dari {totalPages}
+          </span>
+          <button
+            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+            disabled={currentPage === totalPages}
+            className="p-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            title="Halaman Selanjutnya"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+      )}
     </div>
   );
 
   const renderFieldsList = () => (
     <div className="animate-fade-in">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-        <h1 className="text-2xl font-extrabold text-gray-900">Daftar Lapangan</h1>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-5 gap-4">
+        <h1 className="text-xl font-extrabold text-gray-900">Daftar Lapangan</h1>
         <button
           onClick={openAddModal}
-          className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-bold text-sm shadow-sm transition-colors flex items-center justify-center"
+          className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl font-bold text-xs shadow-sm transition-colors flex items-center justify-center"
         >
-          <Plus className="w-5 h-5 mr-1.5" /> Tambah Lapangan
+          <Plus className="w-4 h-4 mr-1.5" /> Tambah Lapangan
         </button>
       </div>
 
@@ -679,56 +793,55 @@ export default function AdminPanel() {
         {/* List Body */}
         <div className="divide-y divide-gray-100">
           {fieldsData.map(field => (
-            <div key={field.id} className="p-4 md:p-0 md:grid grid-cols-12 gap-4 items-center md:px-4 md:py-4 hover:bg-gray-50/50 transition-colors cursor-pointer" onClick={() => { setScheduleModalField(field); setScheduleDate(new Date().toISOString().split('T')[0]); }}>
+            <div key={field.id} className="p-3 md:p-0 md:grid grid-cols-12 gap-3 items-center md:px-3 md:py-2.5 hover:bg-gray-50/50 transition-colors cursor-pointer border-b border-gray-50 last:border-0" onClick={() => { setScheduleModalField(field); setScheduleDate(new Date().toISOString().split('T')[0]); }}>
 
               {/* Info Lapangan */}
-              <div className="col-span-5 mb-3 md:mb-0 flex items-center">
+              <div className="col-span-5 mb-2 md:mb-0 flex items-center">
                 <div className="relative">
                   {/* Gunakan gambar pertama sebagai thumbnail */}
-                  <img src={field.images[0]} alt={field.name} className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl object-cover mr-4 border border-gray-200 flex-shrink-0" />
+                  <img src={field.images[0]} alt={field.name} className="w-12 h-12 sm:w-16 sm:h-16 rounded-xl object-cover mr-3 border border-gray-200 flex-shrink-0" />
                   <div className="absolute -top-1 -right-1 bg-gray-800 text-white text-[9px] font-bold px-1.5 rounded-full border border-white">
                     {field.images.length}
                   </div>
                 </div>
                 <div>
-                  <p className="font-bold text-gray-900 text-sm leading-tight mb-1">{field.name}</p>
-                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md">{field.type}</span>
+                  <p className="font-bold text-gray-900 text-xs sm:text-sm leading-tight mb-0.5 truncate">{field.name}</p>
+                  <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-md">{field.type}</span>
                 </div>
               </div>
 
               {/* Tarif */}
-              <div className="col-span-3 mb-3 md:mb-0 flex justify-between md:block items-center border-t border-gray-100 pt-3 md:border-0 md:pt-0">
-                <span className="md:hidden text-xs font-medium text-gray-500">Tarif / Jam:</span>
-                <p className="font-extrabold text-emerald-600">Rp {field.price.toLocaleString('id-ID')}</p>
+              <div className="col-span-3 mb-2 md:mb-0 flex justify-between md:block items-center border-t border-gray-100 pt-1.5 md:border-0 md:pt-0">
+                <span className="md:hidden text-[10px] font-medium text-gray-500">Tarif / Jam:</span>
+                <p className="font-extrabold text-emerald-600 text-xs sm:text-sm">Rp {field.price.toLocaleString('id-ID')}</p>
               </div>
 
               {/* Status dengan Label BUKA/TUTUP */}
-              <div className="col-span-2 mb-3 md:mb-0 flex justify-between md:block items-center">
-                <span className="md:hidden text-xs font-medium text-gray-500">Status:</span>
-                <span className={`inline-flex items-center px-2.5 py-1 rounded-lg border text-xs font-bold ${field.status === 'aktif' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-red-100 text-red-700 border-red-200'}`}>
-                  {field.status === 'aktif' ? <CheckCircle className="w-3.5 h-3.5 mr-1.5" /> : <XCircle className="w-3.5 h-3.5 mr-1.5" />}
+              <div className="col-span-2 mb-2 md:mb-0 flex justify-between md:block items-center">
+                <span className="md:hidden text-[10px] font-medium text-gray-500">Status:</span>
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-md border text-[10px] font-bold ${field.status === 'aktif' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-red-100 text-red-700 border-red-200'}`}>
+                  {field.status === 'aktif' ? <CheckCircle className="w-3 h-3 mr-1" /> : <XCircle className="w-3 h-3 mr-1" />}
                   {field.status === 'aktif' ? 'Buka (Aktif)' : 'Tutup (Perawatan)'}
                 </span>
               </div>
 
               {/* Aksi (Edit & Delete) */}
-              <div className="col-span-2 flex justify-center gap-2 mt-4 md:mt-0">
+              <div className="col-span-2 flex justify-center gap-1.5 mt-2 md:mt-0">
                 <button
                   onClick={(e) => { e.stopPropagation(); openEditModal(field); }}
-                  className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
+                  className="p-1.5 bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 transition-colors"
                   title="Edit Lapangan"
                 >
-                  <Edit className="w-4 h-4" />
+                  <Edit className="w-3.5 h-3.5" />
                 </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); openDeleteConfirm(field.id); }}
-                  className="p-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100 transition-colors"
+                  className="p-1.5 bg-red-50 text-red-500 rounded-md hover:bg-red-100 transition-colors"
                   title="Hapus Lapangan"
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <Trash2 className="w-3.5 h-3.5" />
                 </button>
               </div>
-
             </div>
           ))}
           {fieldsData.length === 0 && (
@@ -1666,34 +1779,34 @@ export default function AdminPanel() {
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
 
         {/* Top Header Mobile */}
-        <header className="lg:hidden flex items-center justify-between p-4 bg-white border-b border-gray-200 shadow-sm z-30">
+        <header className="lg:hidden flex items-center justify-between p-3 bg-white border-b border-gray-200 shadow-sm z-30">
           <div className="flex items-center">
             <div className="bg-emerald-500 p-1 rounded-md mr-2">
-              <ShieldCheck className="h-5 w-5 text-white" />
+              <ShieldCheck className="h-4 w-4 text-white" />
             </div>
-            <span className="font-extrabold text-lg text-slate-800">Admin<span className="text-emerald-500">Panel</span></span>
+            <span className="font-extrabold text-base text-slate-800">Admin<span className="text-emerald-500">Panel</span></span>
           </div>
-          <button onClick={() => setIsSidebarOpen(true)} className="p-2 bg-gray-100 rounded-lg text-gray-600 hover:bg-gray-200">
-            <Menu className="h-5 w-5" />
+          <button onClick={() => setIsSidebarOpen(true)} className="p-1.5 bg-gray-100 rounded-lg text-gray-600 hover:bg-gray-200">
+            <Menu className="h-4 w-4" />
           </button>
         </header>
 
         {/* Top Header Desktop */}
-        <header className="hidden lg:flex items-center justify-between p-6 bg-white border-b border-gray-200 z-10">
-          <h2 className="text-xl font-extrabold text-gray-800 capitalize">
+        <header className="hidden lg:flex items-center justify-between px-6 py-4 bg-white border-b border-gray-200 z-10">
+          <h2 className="text-lg font-extrabold text-gray-800 capitalize">
             {activeTab === 'dashboard' ? 'Dashboard Overview' : activeTab === 'bookings' ? 'Manajemen Pesanan' : 'Daftar Lapangan'}
           </h2>
-          <div className="flex items-center text-sm font-bold text-gray-500 bg-gray-100 px-3 py-1.5 rounded-lg border border-gray-200">
-            <CalendarIcon className="w-4 h-4 mr-2" />
+          <div className="flex items-center text-xs font-bold text-gray-500 bg-gray-100 px-3 py-1.5 rounded-lg border border-gray-200">
+            <CalendarIcon className="w-3.5 h-3.5 mr-2" />
             {currentTime.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
             <span className="mx-2">|</span>
-            <Clock className="w-4 h-4 mr-1.5" />
+            <Clock className="w-3.5 h-3.5 mr-1.5" />
             {currentTime.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
           </div>
         </header>
 
         {/* Scrollable Content */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+        <main className="flex-1 overflow-y-auto p-4 sm:p-5 lg:p-6">
           {activeTab === 'dashboard' && renderDashboard()}
           {activeTab === 'bookings' && renderBookingsList()}
           {activeTab === 'fields' && renderFieldsList()}

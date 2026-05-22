@@ -48,7 +48,7 @@ export default function App() {
   const fileInputRef = useRef(null);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('');
   const [expandedPaymentGroups, setExpandedPaymentGroups] = useState({
-    'Virtual Account': false,
+    'Transfer Manual': false,
     'E-Wallet': false,
     'Lainnya': false
   });
@@ -64,6 +64,7 @@ export default function App() {
   const [userPhoneInput, setUserPhoneInput] = useState('');
   const [createdBooking, setCreatedBooking] = useState<any>(null);
   const [isSubmittingMethod, setIsSubmittingMethod] = useState(false);
+  const [isSubmittingReceipt, setIsSubmittingReceipt] = useState(false);
 
   // Copy States
   const [copiedBCA, setCopiedBCA] = useState(false);
@@ -391,45 +392,52 @@ export default function App() {
       showToast("Pesanan tidak ditemukan, silakan buat ulang", "error");
       return;
     }
+    if (isSubmittingReceipt) return;
 
-    let receiptUrl = '';
-    if (receiptFile) {
-      const ext = receiptFile.name.split('.').pop();
-      const hashName = Math.random().toString(36).substring(2, 10) + '.' + ext;
-      const res = await fetch(`/api/upload?filename=${hashName}`, {
-        method: 'POST',
-        body: receiptFile,
+    setIsSubmittingReceipt(true);
+    try {
+      let receiptUrl = '';
+      if (receiptFile) {
+        const ext = receiptFile.name.split('.').pop();
+        const hashName = Math.random().toString(36).substring(2, 10) + '.' + ext;
+        const res = await fetch(`/api/upload?filename=${hashName}`, {
+          method: 'POST',
+          body: receiptFile,
+        });
+        const data = await res.json();
+        receiptUrl = data.url;
+      }
+
+      const res = await fetch('/api/bookings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: createdBooking.id,
+          receiptImg: receiptUrl,
+          status: 'MENUNGGU'
+        })
       });
       const data = await res.json();
-      receiptUrl = data.url;
-    }
 
-    fetch('/api/bookings', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: createdBooking.id,
-        receiptImg: receiptUrl,
-        status: 'MENUNGGU'
-      })
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (!user) {
-          signIn();
-          return;
-        }
-        fetchMyBookings();
-        setCurrentView('success');
-        setUploadedReceipt(false);
-        setUploadedFileName('');
-        setReceiptFile(null);
-        setReceiptPreviewUrl('');
-        setIsPreviewModalOpen(false);
-        setCreatedBooking(null);
-        window.scrollTo(0, 0);
-      })
-      .catch(err => console.error("Error updating booking receipt", err));
+      if (!user) {
+        signIn();
+        return;
+      }
+      await fetchMyBookings();
+      setCurrentView('success');
+      setUploadedReceipt(false);
+      setUploadedFileName('');
+      setReceiptFile(null);
+      setReceiptPreviewUrl('');
+      setIsPreviewModalOpen(false);
+      setCreatedBooking(null);
+      window.scrollTo(0, 0);
+    } catch (err) {
+      console.error("Error updating booking receipt", err);
+      showToast("Terjadi kesalahan saat mengirim bukti pembayaran", "error");
+    } finally {
+      setIsSubmittingReceipt(false);
+    }
   };
 
   const confirmCancel = (id) => {
@@ -456,18 +464,18 @@ export default function App() {
   const renderNavbar = () => (
     <nav className="bg-[#0f172a] text-white shadow-md sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between h-16 items-center">
+        <div className="flex justify-between h-14 sm:h-16 items-center">
           <div className="flex items-center cursor-pointer group" onClick={() => setCurrentView('home')}>
-            <div className="bg-gradient-to-br from-emerald-400 to-emerald-600 p-1.5 rounded-lg mr-2 sm:mr-2.5 shadow-lg">
-              <ShieldCheck className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
+            <div className="bg-gradient-to-br from-emerald-400 to-emerald-600 p-1 sm:p-1.5 rounded-lg mr-2 shadow-sm">
+              <ShieldCheck className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
             </div>
             {/* Nama Logo Tampil di HP dan Desktop */}
-            <span className="font-extrabold text-lg sm:text-xl tracking-tight">
+            <span className="font-extrabold text-base sm:text-lg tracking-tight">
               Booking<span className="text-emerald-400">Lapang</span>
             </span>
           </div>
 
-          <div className="hidden sm:flex items-center space-x-8">
+          <div className="hidden sm:flex items-center space-x-6 sm:space-x-8 text-sm sm:text-base">
             <button onClick={() => setCurrentView('home')} className={`font-bold transition-colors ${currentView === 'home' ? 'text-emerald-400' : 'text-gray-300 hover:text-white'}`}>
               Sewa Lapang
             </button>
@@ -479,14 +487,14 @@ export default function App() {
           <div className="flex items-center">
             {user ? (
               <div className="flex items-center space-x-3">
-                <span className="text-sm font-medium text-gray-200 hidden sm:block">Hai, {user.name.split(' ')[0]}</span>
-                <button onClick={() => setShowLogoutConfirm(true)} className="bg-red-500/20 text-red-100 hover:bg-red-500 hover:text-white p-2 rounded-xl transition-colors cursor-pointer">
-                  <LogOut className="h-5 w-5" />
+                <span className="text-xs sm:text-sm font-medium text-gray-200 hidden sm:block">Hai, {user.name.split(' ')[0]}</span>
+                <button onClick={() => setShowLogoutConfirm(true)} className="bg-red-500/20 text-red-100 hover:bg-red-500 hover:text-white p-1.5 sm:p-2 rounded-lg sm:rounded-xl transition-colors cursor-pointer">
+                  <LogOut className="h-4 w-4 sm:h-5 sm:w-5" />
                 </button>
               </div>
             ) : (
-              <button onClick={() => signIn()} className="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-xl font-bold transition-colors flex items-center shadow-lg shadow-emerald-500/30 cursor-pointer">
-                <User className="h-4 w-4 mr-2" /> Masuk
+              <button onClick={() => signIn()} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold transition-colors flex items-center shadow-lg shadow-emerald-500/30 cursor-pointer text-xs sm:text-sm">
+                <User className="h-3 w-3 sm:h-4 sm:w-4 mr-1.5 sm:mr-2" /> Masuk
               </button>
             )}
           </div>
@@ -496,64 +504,68 @@ export default function App() {
   );
 
   const renderHomeView = () => (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-6 animate-fade-in">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-6 animate-fade-in">
       {/* Hero Section */}
-      <div className="bg-emerald-600 rounded-3xl p-6 sm:p-10 mb-8 shadow-lg bg-gradient-to-br from-emerald-600 to-emerald-800 relative overflow-hidden">
-        <div className="absolute top-0 right-0 -mr-8 -mt-8 opacity-10">
-          <ShieldCheck className="w-48 h-48 text-white" />
+      <div className="bg-emerald-600 rounded-2xl sm:rounded-3xl p-5 sm:p-8 mb-6 shadow-md bg-gradient-to-br from-emerald-600 to-emerald-800 relative overflow-hidden">
+        <div className="absolute top-0 right-0 -mr-6 -mt-6 opacity-10">
+          <ShieldCheck className="w-32 h-32 sm:w-40 sm:h-40 text-white" />
         </div>
 
         {/* Grup Pencarian Tanggal & Jam */}
-        <div className="max-w-3xl mx-auto relative z-10 bg-white/10 backdrop-blur-md p-4 sm:p-6 rounded-3xl border border-white/20">
-          <h2 className="text-white font-extrabold text-xl sm:text-2xl mb-4 text-center">Cari Jadwal Lapangan Kosong</h2>
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="relative flex-1">
-              <label className="block text-emerald-100 text-[10px] sm:text-xs font-bold uppercase mb-1 px-1">Pilih Tanggal</label>
-              <div className="relative">
-                <Calendar className="absolute left-4 top-1/2 transform -translate-y-1/2 text-emerald-600 h-5 w-5 z-10" />
-                <input
-                  type="date"
-                  className="w-full pl-12 pr-4 py-3.5 text-sm sm:text-base border-0 rounded-2xl shadow-inner focus:ring-4 focus:ring-emerald-400/50 font-bold text-gray-800 bg-white cursor-pointer outline-none"
-                  value={searchDate} onChange={(e) => setSearchDate(e.target.value)}
-                />
+        <div className="max-w-3xl mx-auto relative z-10 bg-white/10 backdrop-blur-md p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl border border-white/20">
+          <h2 className="text-white font-extrabold text-lg sm:text-xl mb-3 text-center">Cari Jadwal Lapangan Kosong</h2>
+          <div className="flex flex-col md:flex-row gap-2 md:gap-3">
+            {/* Input Wrapper: Date & Time side-by-side on both mobile & desktop */}
+            <div className="flex flex-row gap-2 flex-[2] w-full">
+              <div className="relative flex-1">
+                <label className="block text-emerald-100 text-[9px] sm:text-[10px] font-bold uppercase mb-1 px-1">Pilih Tanggal</label>
+                <div className="relative">
+                  <Calendar className="absolute left-3.5 top-1/2 transform -translate-y-1/2 text-emerald-600 h-4 w-4 z-10" />
+                  <input
+                    type="date"
+                    className="w-full pl-10 pr-2 py-2.5 sm:py-3 text-xs sm:text-sm border-0 rounded-xl shadow-inner focus:ring-4 focus:ring-emerald-400/50 font-bold text-gray-800 bg-white cursor-pointer outline-none"
+                    value={searchDate} onChange={(e) => setSearchDate(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="relative flex-1">
+                <label className="block text-emerald-100 text-[9px] sm:text-[10px] font-bold uppercase mb-1 px-1">Jam Main</label>
+                <div className="relative">
+                  <Clock className="absolute left-3.5 top-1/2 transform -translate-y-1/2 text-emerald-600 h-4 w-4 z-10" />
+                  <select
+                    className="w-full pl-10 pr-2 py-2.5 sm:py-3 text-xs sm:text-sm border-0 rounded-xl shadow-inner focus:ring-4 focus:ring-emerald-400/50 font-bold text-gray-800 bg-white appearance-none outline-none cursor-pointer"
+                    value={searchTime} onChange={(e) => setSearchTime(e.target.value)}
+                  >
+                    <option value="">Jam</option>
+                    {[...Array(14)].map((_, i) => {
+                      const hour = i + 8;
+                      return <option key={hour} value={hour}>{String(hour).padStart(2, '0')}:00</option>
+                    })}
+                  </select>
+                </div>
               </div>
             </div>
 
-            <div className="relative flex-1">
-              <label className="block text-emerald-100 text-[10px] sm:text-xs font-bold uppercase mb-1 px-1">Jam Main</label>
-              <div className="relative">
-                <Clock className="absolute left-4 top-1/2 transform -translate-y-1/2 text-emerald-600 h-5 w-5 z-10" />
-                <select
-                  className="w-full pl-12 pr-4 py-3.5 text-sm sm:text-base border-0 rounded-2xl shadow-inner focus:ring-4 focus:ring-emerald-400/50 font-bold text-gray-800 bg-white appearance-none outline-none cursor-pointer"
-                  value={searchTime} onChange={(e) => setSearchTime(e.target.value)}
-                >
-                  <option value="">Semua Jam</option>
-                  {[...Array(14)].map((_, i) => {
-                    const hour = i + 8;
-                    return <option key={hour} value={hour}>{String(hour).padStart(2, '0')}:00</option>
-                  })}
-                </select>
-              </div>
-            </div>
-
-            <div className="flex items-end mt-2 sm:mt-0 gap-2 w-full sm:w-auto">
-              <button onClick={handleResetSearch} className="flex-1 sm:flex-none bg-emerald-700/50 text-white border border-emerald-500/50 hover:bg-emerald-700 px-4 py-3.5 rounded-2xl font-bold text-sm sm:text-base shadow-lg active:scale-95 transition-all flex justify-center items-center h-[52px]">
+            {/* Buttons Wrapper: side-by-side on mobile, aligned on desktop */}
+            <div className="flex flex-row items-end gap-2 w-full md:w-auto">
+              <button onClick={handleResetSearch} className="flex-1 md:flex-none bg-emerald-700/50 text-white border border-emerald-500/50 hover:bg-emerald-700 px-3 py-2.5 sm:py-3 rounded-xl font-bold text-xs sm:text-sm shadow-md active:scale-95 transition-all flex justify-center items-center h-[38px] sm:h-[46px] md:h-[46px]">
                 Reset
               </button>
-              <button onClick={handleSearch} className="flex-[2] sm:flex-none bg-emerald-400 text-emerald-900 hover:bg-emerald-300 px-6 sm:px-8 py-3.5 rounded-2xl font-extrabold text-sm sm:text-base shadow-lg active:scale-95 transition-all flex justify-center items-center h-[52px]">
-                <Search className="h-5 w-5 sm:mr-1.5" />
-                <span className="sm:inline">Cari</span>
+              <button onClick={handleSearch} className="flex-[2] md:flex-none bg-emerald-400 text-emerald-900 hover:bg-emerald-300 px-5 py-2.5 sm:py-3 rounded-xl font-extrabold text-xs sm:text-sm shadow-md active:scale-95 transition-all flex justify-center items-center h-[38px] sm:h-[46px] md:h-[46px]">
+                <Search className="h-4 w-4 md:mr-1.5" />
+                <span className="inline">Cari</span>
               </button>
             </div>
           </div>
 
           {/* Tambahan Kolom Pencarian Nama Lapangan di bawah grup */}
-          <div className="mt-4 relative">
-            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5 z-10" />
+          <div className="mt-3 relative">
+            <Search className="absolute left-3.5 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4 z-10" />
             <input
               type="text"
               placeholder="Ketik nama lapangan ..."
-              className="w-full pl-12 pr-4 py-3.5 text-sm sm:text-base border-0 rounded-2xl shadow-inner focus:ring-4 focus:ring-emerald-400/50 font-bold text-gray-800 bg-white outline-none"
+              className="w-full pl-10 pr-3 py-2.5 sm:py-3 text-xs sm:text-sm border-0 rounded-xl shadow-inner focus:ring-4 focus:ring-emerald-400/50 font-bold text-gray-800 bg-white outline-none"
               value={searchName}
               onChange={handleSearchName}
             />
@@ -561,11 +573,11 @@ export default function App() {
         </div>
       </div>
 
-      <h2 className="text-lg sm:text-2xl font-extrabold text-gray-900 mb-4 sm:mb-6 flex items-center">
-        <MapPin className="mr-2 text-emerald-500 w-5 h-5 sm:w-6 sm:h-6" /> Katalog Lapangan
+      <h2 className="text-base sm:text-xl font-extrabold text-gray-900 mb-3 sm:mb-5 flex items-center">
+        <MapPin className="mr-1.5 text-emerald-500 w-4 h-4 sm:w-5 sm:h-5" /> Katalog Lapangan
       </h2>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
         {isLoadingFields ? (
           <div className="col-span-full py-12 flex flex-col items-center justify-center">
             <div className="w-12 h-12 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin mb-4"></div>
@@ -617,20 +629,20 @@ export default function App() {
   );
 
   const renderMyBookingsView = () => (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 animate-fade-in">
-      <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 mb-6">Booking Lapang (Pesanan Saya)</h1>
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-6 animate-fade-in">
+      <h1 className="text-xl sm:text-2xl font-extrabold text-gray-900 mb-5">Booking Lapang (Pesanan Saya)</h1>
 
       {myBookings.length === 0 ? (
-        <div className="bg-white rounded-3xl p-10 text-center shadow-sm border border-gray-100">
-          <FileText className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <h2 className="text-lg font-bold text-gray-800">Belum Ada Transaksi</h2>
-          <p className="text-sm text-gray-500 mt-2">Anda belum melakukan pemesanan lapangan.</p>
-          <button onClick={() => setCurrentView('home')} className="mt-6 bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold shadow-md">
+        <div className="bg-white rounded-2xl p-8 text-center shadow-sm border border-gray-100">
+          <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+          <h2 className="text-base font-bold text-gray-800">Belum Ada Transaksi</h2>
+          <p className="text-xs text-gray-500 mt-1.5">Anda belum melakukan pemesanan lapangan.</p>
+          <button onClick={() => setCurrentView('home')} className="mt-5 bg-emerald-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-md">
             Cari Lapangan Sekarang
           </button>
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {myBookings.map((bkg, index) => {
             let statusColor = "bg-yellow-100 text-yellow-800 border-yellow-200";
             let StatusIcon = Clock3;
@@ -647,20 +659,20 @@ export default function App() {
             }
 
             return (
-              <div key={index} className={`bg-white rounded-2xl shadow-sm border p-4 sm:p-5 flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center ${bkg.status === 'dibatalkan' ? 'border-gray-200 opacity-60' : 'border-gray-100'}`}>
+              <div key={index} className={`bg-white rounded-2xl shadow-sm border p-3.5 sm:p-4 flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center ${bkg.status === 'dibatalkan' ? 'border-gray-200 opacity-60' : 'border-gray-100'}`}>
                 <div className="w-full sm:w-auto flex-1">
-                  <div className="flex justify-between items-start mb-2 sm:mb-1">
-                    <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">{bkg.bookingCode}</p>
-                    <div className={`sm:hidden flex items-center px-2 py-1 rounded-full border text-[10px] font-bold ${statusColor}`}>
-                      <StatusIcon className="w-3 h-3 mr-1" /> {statusText}
+                  <div className="flex justify-between items-start mb-1.5 sm:mb-1">
+                    <p className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">{bkg.bookingCode}</p>
+                    <div className={`sm:hidden flex items-center px-1.5 py-0.5 rounded-md border text-[9px] font-bold ${statusColor}`}>
+                      <StatusIcon className="w-2.5 h-2.5 mr-1" /> {statusText}
                     </div>
                   </div>
-                  <h3 className="font-extrabold text-gray-900 text-base sm:text-lg mb-1 leading-tight">{bkg.fieldName}</h3>
-                  <div className="flex items-center text-xs sm:text-sm text-gray-600 font-medium">
-                    <Calendar className="w-3.5 h-3.5 mr-1.5" />
+                  <h3 className="font-extrabold text-gray-900 text-sm sm:text-base mb-1 leading-tight">{bkg.fieldName}</h3>
+                  <div className="flex items-center text-[11px] sm:text-xs text-gray-600 font-medium">
+                    <Calendar className="w-3 h-3 mr-1" />
                     {bkg.date}
-                    <span className="mx-2 text-gray-300">|</span>
-                    <Clock className="w-3.5 h-3.5 mr-1.5" />
+                    <span className="mx-1.5 text-gray-300">|</span>
+                    <Clock className="w-3 h-3 mr-1" />
                     {bkg.time}
                   </div>
 
@@ -668,9 +680,9 @@ export default function App() {
                   {bkg.status === 'menunggu' && (
                     <button
                       onClick={() => setConfirmCancelId(bkg.id)}
-                      className="mt-4 inline-flex items-center justify-center px-4 py-2 border-2 border-red-200 text-red-600 hover:bg-red-50 rounded-xl text-xs sm:text-sm font-bold transition-colors w-full sm:w-auto"
+                      className="mt-3 inline-flex items-center justify-center px-3 py-1.5 border border-red-200 text-red-600 hover:bg-red-50 rounded-lg text-[10px] sm:text-xs font-bold transition-colors w-full sm:w-auto"
                     >
-                      <XOctagon className="w-4 h-4 mr-1.5" /> Batalkan Pesanan
+                      <XOctagon className="w-3 h-3 mr-1" /> Batalkan Pesanan
                     </button>
                   )}
 
@@ -678,27 +690,27 @@ export default function App() {
                   {bkg.status === 'dikonfirmasi' && !bkg.rated && (
                     <button
                       onClick={() => setRatingBooking(bkg)}
-                      className="mt-4 inline-flex items-center justify-center px-4 py-2 border-2 border-yellow-300 text-yellow-700 bg-yellow-50 hover:bg-yellow-100 rounded-xl text-xs sm:text-sm font-bold transition-colors w-full sm:w-auto shadow-sm"
+                      className="mt-3 inline-flex items-center justify-center px-3 py-1.5 border border-yellow-300 text-yellow-700 bg-yellow-50 hover:bg-yellow-100 rounded-lg text-[10px] sm:text-xs font-bold transition-colors w-full sm:w-auto shadow-sm"
                     >
-                      <Star className="w-4 h-4 mr-1.5 fill-current" /> Beri Ulasan
+                      <Star className="w-3 h-3 mr-1 fill-current" /> Beri Ulasan
                     </button>
                   )}
 
                   {/* Jika sudah diulas */}
                   {bkg.status === 'dikonfirmasi' && bkg.rated && (
-                    <div className="mt-4 inline-flex items-center px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs font-bold text-gray-600">
-                      Ulasan Anda: <Star className="w-3.5 h-3.5 ml-1.5 text-yellow-500 fill-current" /> {bkg.rating}/5
+                    <div className="mt-3 inline-flex items-center px-2.5 py-1 bg-gray-50 border border-gray-200 rounded-md text-[10px] font-bold text-gray-600">
+                      Ulasan Anda: <Star className="w-2.5 h-2.5 ml-1 text-yellow-500 fill-current" /> {bkg.rating}/5
                     </div>
                   )}
                 </div>
 
-                <div className="flex flex-row sm:flex-col justify-between items-center sm:items-end w-full sm:w-auto mt-2 sm:mt-0 pt-3 sm:pt-0 border-t sm:border-0 border-gray-100">
+                <div className="flex flex-row sm:flex-col justify-between items-center sm:items-end w-full sm:w-auto mt-1 sm:mt-0 pt-2 sm:pt-0 border-t sm:border-0 border-gray-100">
                   <div className="text-left sm:text-right">
-                    <p className="text-[10px] text-gray-500 font-medium hidden sm:block mb-0.5">Total Biaya</p>
-                    <p className="font-extrabold text-emerald-600 text-base sm:text-lg">Rp {bkg.price.toLocaleString('id-ID')}</p>
+                    <p className="text-[9px] text-gray-500 font-medium hidden sm:block mb-0.5">Total Biaya</p>
+                    <p className="font-extrabold text-emerald-600 text-sm sm:text-base">Rp {bkg.price.toLocaleString('id-ID')}</p>
                   </div>
-                  <div className={`hidden sm:flex items-center mt-2 px-3 py-1.5 rounded-lg border text-xs font-bold ${statusColor}`}>
-                    <StatusIcon className="w-4 h-4 mr-1.5" /> {statusText}
+                  <div className={`hidden sm:flex items-center mt-1.5 px-2 py-1 rounded-md border text-[10px] font-bold ${statusColor}`}>
+                    <StatusIcon className="w-3 h-3 mr-1" /> {statusText}
                   </div>
                 </div>
               </div>
@@ -1079,7 +1091,7 @@ export default function App() {
         accountMap[`custom_admin_${idx}`] = {
           badge: badgeText,
           methodType: methodType,
-          title: pm.bankName || 'Bank Transfer',
+          title: (pm.bankName || 'Bank Transfer') + (methodType === 'TRANSFER MANUAL' ? ' (Transfer Manual)' : ''),
           number: pm.bankAccount || '-',
           name: pmOwner,
           instructionTitle: `Instruksi ${instructionPrefix} ${badgeText}`,
@@ -1148,7 +1160,7 @@ export default function App() {
             <p className="text-[11px] sm:text-xs text-gray-500 mb-4 font-medium leading-relaxed">
               Kami akan mengirimkan notifikasi konfirmasi pesanan dan instruksi pembayaran ke nomor ini.
             </p>
-            <input 
+            <input
               type="tel"
               value={userPhoneInput}
               onChange={(e) => setUserPhoneInput(e.target.value)}
@@ -1232,7 +1244,9 @@ export default function App() {
                                   )}
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                  <p className="font-extrabold text-sm text-gray-800 truncate">{pm.bankName || 'Bank Transfer'}</p>
+                                  <p className="font-extrabold text-sm text-gray-800 truncate">
+                                    {(pm.bankName || 'Bank Transfer') + (title === "Transfer Manual" ? " (Transfer Manual)" : "")}
+                                  </p>
                                 </div>
                                 <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ml-3 ${selectedPaymentMethod === `custom_admin_${pm.idx}` ? 'border-emerald-500' : 'border-gray-300'}`}>
                                   {selectedPaymentMethod === `custom_admin_${pm.idx}` && <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full"></div>}
@@ -1248,7 +1262,7 @@ export default function App() {
 
                 return (
                   <>
-                    {renderGroup("Virtual Account", <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path></svg>, vaMethods)}
+                    {renderGroup("Transfer Manual", <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path></svg>, vaMethods)}
                     {renderGroup("E-Wallet", <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>, ewalletMethods)}
                     {renderGroup("Lainnya", <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>, otherMethods)}
                   </>
@@ -1444,14 +1458,23 @@ export default function App() {
               {/* Kirim Bukti Pembayaran Button */}
               <button
                 onClick={submitCheckout}
-                disabled={!uploadedReceipt}
-                className={`w-full mt-6 py-4 rounded-xl font-extrabold text-white text-base transition-all shadow-md flex items-center justify-center gap-2 ${uploadedReceipt
+                disabled={!uploadedReceipt || isSubmittingReceipt}
+                className={`w-full mt-6 py-4 rounded-xl font-extrabold text-white text-base transition-all shadow-md flex items-center justify-center gap-2 ${uploadedReceipt && !isSubmittingReceipt
                   ? 'bg-emerald-600 hover:bg-emerald-700 active:scale-95 cursor-pointer shadow-emerald-600/20'
-                  : 'bg-gray-300 shadow-none cursor-not-allowed'
+                  : 'bg-gray-300 shadow-none cursor-not-allowed text-gray-400'
                   }`}
               >
-                <CheckCircle2 className="w-5 h-5" />
-                Kirim Bukti Pembayaran
+                {isSubmittingReceipt ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    Mengirim Bukti...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-5 h-5" />
+                    Kirim Bukti Pembayaran
+                  </>
+                )}
               </button>
 
               {/* Kembali ke Beranda Button */}
