@@ -177,11 +177,6 @@ async function sendWhatsAppNotification(
 
     // 6. Call Fonnte API
     const fonnteToken = process.env.FONNTE_TOKEN || "e9xsJ4RcFFj2Lk1MuCfp";
-    const data = new URLSearchParams();
-    data.append("target", recipient);
-    data.append("message", message);
-    data.append("countryCode", "62");
-
     const reqPayload = JSON.stringify({ target: recipient, message, countryCode: "62" });
     let resPayload = "";
     let status = "FAILED";
@@ -191,9 +186,9 @@ async function sendWhatsAppNotification(
         method: "POST",
         headers: {
           "Authorization": fonnteToken,
-          "Content-Type": "application/x-www-form-urlencoded"
+          "Content-Type": "application/json"
         },
-        body: data
+        body: reqPayload
       });
       const result = await response.json();
       resPayload = JSON.stringify(result);

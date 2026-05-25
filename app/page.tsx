@@ -199,9 +199,7 @@ export default function App() {
       fetch(`/api/customers?id=${user.id}`)
         .then(res => res.json())
         .then(data => {
-          if (data && data.phone && !data.phone.startsWith('G-')) {
-            setUserPhoneInput(data.phone);
-          }
+          // Automatic phone prefill removed to force manual input and double-check
         })
         .catch(err => console.error("Error fetching customer phone:", err));
     }
@@ -278,7 +276,8 @@ export default function App() {
       setStartHour('');
       setEndHour('');
     }
-    setSelectedPaymentMethod(field?.paymentMethods?.length > 0 ? 'custom_admin_0' : '');
+    setSelectedPaymentMethod('');
+    setUserPhoneInput('');
     setCurrentView('detail');
     window.scrollTo(0, 0);
   };

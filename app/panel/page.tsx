@@ -52,6 +52,35 @@ export default function AdminPanel() {
     window.alert = (msg) => showToast(msg, 'error');
   }, []);
 
+  // Handle mobile phone native back button (popstate) for Admin activeTab
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.history.replaceState({ tab: 'dashboard' }, '');
+    }
+
+    const handlePopState = (event) => {
+      if (event.state && event.state.tab) {
+        setActiveTab(event.state.tab);
+      } else {
+        setActiveTab('dashboard');
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const currentState = window.history.state;
+      if (!currentState || currentState.tab !== activeTab) {
+        window.history.pushState({ tab: activeTab }, '');
+      }
+    }
+  }, [activeTab]);
+
   // Fields State
   const [fieldsData, setFieldsData] = useState([]);
 
@@ -379,6 +408,16 @@ export default function AdminPanel() {
   };
 
   // --- DATA CALCULATIONS ---
+  const isOlderThanOneDay = (rawDateStr) => {
+    if (!rawDateStr) return false;
+    const bookingDate = new Date(rawDateStr);
+    const today = new Date(currentTime.getFullYear(), currentTime.getMonth(), currentTime.getDate());
+    const target = new Date(bookingDate.getFullYear(), bookingDate.getMonth(), bookingDate.getDate());
+    const diffTime = today.getTime() - target.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays > 1;
+  };
+
   const todayDateStr = currentTime.getFullYear() + '-' + String(currentTime.getMonth() + 1).padStart(2, '0') + '-' + String(currentTime.getDate()).padStart(2, '0');
   const todaysBookings = bookings.filter(b => b.rawDate === todayDateStr);
 
@@ -388,7 +427,7 @@ export default function AdminPanel() {
     .filter(b => b.status === 'dikonfirmasi')
     .reduce((acc, curr) => acc + curr.price, 0);
 
-  const totalPendingCount = bookings.filter(b => b.status === 'menunggu').length;
+  const totalPendingCount = bookings.filter(b => b.status === 'menunggu' && !isOlderThanOneDay(b.rawDate)).length;
 
   const filteredBookingsAll = bookings.filter(b => {
     let matchStatus = filterStatus === 'semua' ? true : b.status === filterStatus;
@@ -515,7 +554,7 @@ export default function AdminPanel() {
   };
 
   const renderDashboard = () => {
-    const pendingBookings = bookings.filter(b => b.status === 'menunggu');
+    const pendingBookings = bookings.filter(b => b.status === 'menunggu' && !isOlderThanOneDay(b.rawDate));
     const totalDashboardPages = Math.ceil(pendingBookings.length / 10);
     const activeDashboardPage = dashboardPage > totalDashboardPages ? 1 : dashboardPage;
     const paginatedPending = pendingBookings.slice((activeDashboardPage - 1) * 10, activeDashboardPage * 10);
@@ -628,16 +667,16 @@ export default function AdminPanel() {
         <h1 className="text-xl font-extrabold text-gray-900">Kelola Pesanan</h1>
 
         {/* Filter and Search Container */}
-        <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full sm:w-auto">
           {/* Search Input */}
-          <div className="relative w-full sm:w-auto">
+          <div className="relative w-full sm:w-auto order-2 sm:order-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
               type="text"
               placeholder="Cari nama, hp, atau lapangan..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full sm:w-64 pl-9 pr-4 py-1.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all text-black"
+              className="w-full sm:w-64 pl-9 pr-4 py-1.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all text-black font-semibold"
             />
           </div>
 
@@ -646,11 +685,11 @@ export default function AdminPanel() {
             type="date"
             value={filterDate}
             onChange={(e) => setFilterDate(e.target.value)}
-            className="w-full sm:w-auto px-3 py-1.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all text-gray-600 font-medium"
+            className="w-1/2 sm:w-auto order-1 sm:order-2 px-3 py-1.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all text-black font-semibold"
           />
 
           {/* Status Filter */}
-          <div className="flex items-center bg-white border border-gray-200 rounded-xl p-1 shadow-sm w-full sm:w-auto">
+          <div className="flex items-center bg-white border border-gray-200 rounded-xl p-1 shadow-sm w-full sm:w-auto order-3 sm:order-3">
             <button onClick={() => setFilterStatus('semua')} className={`flex-1 sm:flex-none px-3 py-1 text-xs font-bold rounded-lg transition-colors ${filterStatus === 'semua' ? 'bg-slate-100 text-slate-800' : 'text-gray-500 hover:text-gray-700'}`}>Semua</button>
             <button onClick={() => setFilterStatus('menunggu')} className={`flex-1 sm:flex-none px-3 py-1 text-xs font-bold rounded-lg transition-colors ${filterStatus === 'menunggu' ? 'bg-orange-100 text-orange-800' : 'text-gray-500 hover:text-gray-700'}`}>Menunggu</button>
             <button onClick={() => setFilterStatus('dikonfirmasi')} className={`flex-1 sm:flex-none px-3 py-1 text-xs font-bold rounded-lg transition-colors ${filterStatus === 'dikonfirmasi' ? 'bg-emerald-100 text-emerald-800' : 'text-gray-500 hover:text-gray-700'}`}>Selesai</button>
