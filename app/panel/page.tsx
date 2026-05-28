@@ -6,7 +6,7 @@ import {
   Menu, X, LogOut, FileImage, DollarSign, Calendar as CalendarIcon,
   Clock, ShieldCheck, MapPin, User, Search, Filter,
   Edit, Trash2, Plus, AlertTriangle, Save, Upload, FileText, TrendingUp,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, Check, QrCode, Wallet, CreditCard, Copy
 } from 'lucide-react';
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
@@ -110,8 +110,8 @@ export default function AdminPanel() {
             duration: b.end_hour - b.start_hour,
             price: Number(b.total_price),
             status: b.status.toLowerCase(),
-            paymentMethod: 'Transfer',
-            receiptImg: b.receipt_img || 'https://via.placeholder.com/400',
+            paymentMethod: b.payment_method || 'Transfer',
+            receiptImg: b.receipt_img || null,
             submitTime: new Date(b.created_at).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + ' | ' + new Date(b.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }).replace(/\./g, ':')
           };
         });
@@ -139,6 +139,17 @@ export default function AdminPanel() {
       })
       .catch(err => console.error('Error fetching fields:', err));
   };
+
+  const [dbPaymentMethods, setDbPaymentMethods] = useState([]);
+
+  useEffect(() => {
+    fetch('/api/payment-methods')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) setDbPaymentMethods(data);
+      })
+      .catch(err => console.error("Error fetching payment methods", err));
+  }, []);
 
   useEffect(() => {
     if (session?.user?.id) fetchData();
@@ -178,6 +189,17 @@ export default function AdminPanel() {
   const fileInputAddRef = useRef(null);
   const fileInputEditRef = useRef(null);
 
+  // State Sub-Modal Pembayaran
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [paymentModalTarget, setPaymentModalTarget] = useState('new');
+  const [paymentModalMode, setPaymentModalMode] = useState('add');
+  const [paymentModalIndex, setPaymentModalIndex] = useState(null);
+  const [paymentFormData, setPaymentFormData] = useState({
+    type: 'Bank Transfer',
+    bankName: '',
+    isActive: true
+  });
+
   // --- HANDLERS UNTUK BOOKING ---
   const handleApprove = (id) => {
     fetch('/api/bookings', {
@@ -199,6 +221,19 @@ export default function AdminPanel() {
       fetchData();
       setSelectedReceipt(null);
     });
+  };
+
+  const handleCancelBooking = (id) => {
+    if (confirm('Apakah Anda yakin ingin membatalkan pesanan ini? Aksi ini juga akan menghanguskan QR Code/VA Xendit jika ada.')) {
+      fetch('/api/bookings', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      }).then(() => {
+        fetchData();
+        setSelectedReceipt(null);
+      });
+    }
   };
 
   const closeSidebarMobile = () => {
@@ -289,24 +324,59 @@ export default function AdminPanel() {
     }
   };
 
-  const handlePaymentMethodChange = (index, field, value, isEdit = false) => {
-    if (isEdit) {
-      const updated = [...currentEditField.paymentMethods];
-      updated[index][field] = value;
-      setCurrentEditField({ ...currentEditField, paymentMethods: updated });
+  const openPaymentModal = (target: 'new' | 'edit', mode: 'add' | 'edit', index = null) => {
+    setPaymentModalTarget(target);
+    setPaymentModalMode(mode);
+    setPaymentModalIndex(index);
+    if (mode === 'edit' && index !== null) {
+      const pmList = target === 'new' ? newField.paymentMethods : currentEditField.paymentMethods;
+      const pm = pmList[index];
+      // Infer type based on bankName or isQris
+      let type = 'Bank Transfer';
+      const bn = (pm.bankName || '').toLowerCase();
+      if (pm.isQris || bn.includes('qris')) type = 'QRIS';
+      else if (bn.includes('virtual account')) type = 'Virtual Account';
+      else if (bn.includes('dana') || bn.includes('ovo') || bn.includes('gopay') || bn.includes('shopee') || bn.includes('linkaja')) type = 'E-Wallet';
+      
+      setPaymentFormData({
+        type,
+        bankName: pm.bankName || '',
+        isActive: pm.isActive !== false // defaults to true if not present
+      });
     } else {
-      const updated = [...newField.paymentMethods];
-      updated[index][field] = value;
-      setNewField({ ...newField, paymentMethods: updated });
+      setPaymentFormData({ type: 'Bank Transfer', bankName: '', isActive: true });
     }
+    setIsPaymentModalOpen(true);
   };
 
-  const addPaymentMethod = (isEdit = false) => {
-    if (isEdit) {
-      setCurrentEditField({ ...currentEditField, paymentMethods: [...currentEditField.paymentMethods, { bankName: '', bankAccount: '', bankOwner: '' }] });
-    } else {
-      setNewField({ ...newField, paymentMethods: [...newField.paymentMethods, { bankName: '', bankAccount: '', bankOwner: '' }] });
+  const closePaymentModal = () => {
+    setIsPaymentModalOpen(false);
+  };
+
+  const savePaymentModal = () => {
+    if (!paymentFormData.bankName) {
+      alert("Harap pilih nama bank/E-Wallet!");
+      return;
     }
+
+    const newPm = {
+      bankName: paymentFormData.bankName,
+      isActive: paymentFormData.isActive,
+      isQris: paymentFormData.type === 'QRIS'
+    };
+
+    if (paymentModalTarget === 'new') {
+      const updated = [...(newField.paymentMethods || [])];
+      if (paymentModalMode === 'add') updated.push(newPm);
+      else updated[paymentModalIndex] = newPm;
+      setNewField({ ...newField, paymentMethods: updated });
+    } else {
+      const updated = [...(currentEditField.paymentMethods || [])];
+      if (paymentModalMode === 'add') updated.push(newPm);
+      else updated[paymentModalIndex] = newPm;
+      setCurrentEditField({ ...currentEditField, paymentMethods: updated });
+    }
+    setIsPaymentModalOpen(false);
   };
 
   const removePaymentMethod = (index, isEdit = false) => {
@@ -421,13 +491,13 @@ export default function AdminPanel() {
   const todayDateStr = currentTime.getFullYear() + '-' + String(currentTime.getMonth() + 1).padStart(2, '0') + '-' + String(currentTime.getDate()).padStart(2, '0');
   const todaysBookings = bookings.filter(b => b.rawDate === todayDateStr);
 
-  const dashboardPendingCount = todaysBookings.filter(b => b.status === 'menunggu').length;
+  const dashboardPendingCount = todaysBookings.filter(b => b.status === 'menunggu' || b.status === 'menunggu pembayaran').length;
   const dashboardApprovedCount = todaysBookings.filter(b => b.status === 'dikonfirmasi').length;
   const dashboardTotalRevenue = todaysBookings
     .filter(b => b.status === 'dikonfirmasi')
     .reduce((acc, curr) => acc + curr.price, 0);
 
-  const totalPendingCount = bookings.filter(b => b.status === 'menunggu' && !isOlderThanOneDay(b.rawDate)).length;
+  const totalPendingCount = bookings.filter(b => (b.status === 'menunggu' || b.status === 'menunggu pembayaran') && !isOlderThanOneDay(b.rawDate)).length;
 
   const filteredBookingsAll = bookings.filter(b => {
     let matchStatus = filterStatus === 'semua' ? true : b.status === filterStatus;
@@ -554,7 +624,7 @@ export default function AdminPanel() {
   };
 
   const renderDashboard = () => {
-    const pendingBookings = bookings.filter(b => b.status === 'menunggu' && !isOlderThanOneDay(b.rawDate));
+    const pendingBookings = bookings.filter(b => (b.status === 'menunggu' || b.status === 'menunggu pembayaran') && !isOlderThanOneDay(b.rawDate));
     const totalDashboardPages = Math.ceil(pendingBookings.length / 10);
     const activeDashboardPage = dashboardPage > totalDashboardPages ? 1 : dashboardPage;
     const paginatedPending = pendingBookings.slice((activeDashboardPage - 1) * 10, activeDashboardPage * 10);
@@ -613,9 +683,12 @@ export default function AdminPanel() {
               paginatedPending.map(bkg => (
                 <div key={bkg.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-3 bg-gray-50 rounded-xl border border-gray-100 gap-2 hover:bg-slate-100/50 transition-colors">
                   <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 mb-0.5">
-                      <span className="text-[9px] font-extrabold text-gray-500 uppercase tracking-wider">ID: {bkg.id}</span>
+                    <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+                      <span className="text-[9px] font-extrabold text-gray-500 uppercase tracking-wider">{bkg.bookingCode || `ID: ${bkg.id}`}</span>
                       <span className="text-[8px] font-bold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-md">{bkg.submitTime}</span>
+                      {bkg.status === 'menunggu pembayaran' && (
+                        <span className="text-[8px] font-bold bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-md">{bkg.paymentMethod}</span>
+                      )}
                     </div>
                     <p className="text-xs font-extrabold text-gray-900 truncate">
                       {bkg.userName} <span className="text-gray-500 font-bold text-[10px] ml-0.5">({bkg.fieldName})</span>
@@ -895,6 +968,10 @@ export default function AdminPanel() {
   const renderReceiptModal = () => {
     if (!selectedReceipt) return null;
 
+    const receiptUrl = selectedReceipt.receiptImg;
+    const isXenditPayment = receiptUrl && (receiptUrl.startsWith('QR_STRING:') || receiptUrl.startsWith('CHECKOUT_URL:') || receiptUrl.startsWith('VA_NUMBER:'));
+    const isUploaded = receiptUrl && !isXenditPayment && !receiptUrl.includes('via.placeholder.com');
+
     return (
       <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
         <div className="bg-white rounded-3xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
@@ -902,8 +979,13 @@ export default function AdminPanel() {
           {/* Header */}
           <div className="flex justify-between items-center p-5 border-b border-gray-100 bg-gray-50">
             <div>
-              <h3 className="font-extrabold text-lg text-gray-900">Validasi Bukti Pembayaran</h3>
-              <p className="text-xs font-medium text-gray-500">ID Pesanan: {selectedReceipt.id}</p>
+              <h3 className="font-extrabold text-lg text-gray-900">
+                {isXenditPayment ? 'Detail Pesanan (Pembayaran Otomatis)' : 'Validasi Bukti Pembayaran'}
+              </h3>
+              <div className="flex items-center gap-2 mt-0.5">
+                <p className="text-xs font-medium text-gray-500">ID Pesanan: {selectedReceipt.id}</p>
+                {selectedReceipt.bookingCode && <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-md">{selectedReceipt.bookingCode}</span>}
+              </div>
             </div>
             <button onClick={() => setSelectedReceipt(null)} className="p-2 bg-white rounded-full text-gray-400 hover:text-gray-700 border border-gray-200">
               <X className="h-5 w-5" />
@@ -916,13 +998,61 @@ export default function AdminPanel() {
             <div className="w-full md:w-1/2 flex flex-col">
               <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Gambar Bukti Transfer</p>
               <div
-                className="bg-gray-100 rounded-2xl p-2 border border-gray-200 flex-1 h-[300px] md:h-[400px] flex items-center justify-center relative group overflow-hidden cursor-pointer"
-                onClick={() => setIsPreviewModalOpen(true)}
+                className={`bg-gray-100 rounded-2xl p-2 border border-gray-200 flex-1 h-[300px] md:h-[400px] flex flex-col items-center justify-center relative ${isUploaded ? 'group cursor-pointer overflow-hidden' : ''}`}
+                onClick={() => isUploaded && setIsPreviewModalOpen(true)}
               >
-                <img src={selectedReceipt.receiptImg} alt="Bukti Transfer" className="w-full h-full object-contain rounded-xl group-hover:scale-105 transition-transform" />
-                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40 rounded-2xl">
-                  <Search className="w-8 h-8 text-white" />
-                </div>
+                {isUploaded ? (
+                  <>
+                    {receiptUrl.startsWith('QR_STRING:') ? (
+                      <div className="flex flex-col items-center justify-center p-4 text-center">
+                        <QrCode className="w-16 h-16 text-emerald-500 mb-3" />
+                        <p className="font-extrabold text-gray-800">Pembayaran via QRIS</p>
+                        <p className="text-xs text-gray-500 mt-1">Sistem otomatis menunggu pembayaran</p>
+                      </div>
+                    ) : receiptUrl.startsWith('CHECKOUT_URL:') ? (
+                      <div className="flex flex-col items-center justify-center p-4 text-center">
+                        <Wallet className="w-16 h-16 text-blue-500 mb-3" />
+                        <p className="font-extrabold text-gray-800">Pembayaran via E-Wallet</p>
+                        <p className="text-xs text-gray-500 mt-1">Sistem otomatis menunggu pembayaran</p>
+                        <a href={receiptUrl.replace('CHECKOUT_URL:', '')} target="_blank" rel="noopener noreferrer" className="mt-3 text-xs text-blue-600 hover:underline">Lihat Link Pembayaran</a>
+                      </div>
+                    ) : receiptUrl.startsWith('VA_NUMBER:') ? (
+                      <div className="flex flex-col items-center justify-center p-4 text-center">
+                        <CreditCard className="w-16 h-16 text-emerald-500 mb-3" />
+                        <p className="font-extrabold text-gray-800">Pembayaran via Virtual Account</p>
+                        <p className="text-xl font-black text-gray-900 tracking-widest my-2">{receiptUrl.split(':')[2]}</p>
+                        <p className="text-xs text-gray-500">Sistem otomatis menunggu pembayaran</p>
+                      </div>
+                    ) : (
+                      <>
+                        <img
+                          src={receiptUrl}
+                          alt="Bukti Transfer"
+                          className="w-full h-full object-contain rounded-xl group-hover:scale-105 transition-transform"
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                            const fallback = e.currentTarget.nextElementSibling;
+                            if (fallback) fallback.style.display = 'flex';
+                          }}
+                        />
+                        <div style={{ display: 'none' }} className="flex-col items-center text-center p-4 w-full h-full justify-center absolute inset-0 bg-gray-50 rounded-xl">
+                          <FileImage className="w-12 h-12 text-gray-400 mb-2" />
+                          <p className="text-sm font-bold text-gray-600">Gagal memuat gambar</p>
+                          <p className="text-[10px] text-gray-500 mt-1 break-all bg-white p-2 rounded border border-gray-200 w-full">{receiptUrl.split('/').pop() || receiptUrl}</p>
+                        </div>
+                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40 rounded-2xl">
+                          <Search className="w-8 h-8 text-white" />
+                        </div>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <div className="flex flex-col items-center text-center p-4">
+                    <FileImage className="w-16 h-16 text-gray-300 mb-3" />
+                    <p className="font-extrabold text-gray-500 text-sm">Foto bukti belum dikirim</p>
+                    <p className="text-[10px] font-medium text-gray-400 mt-1">Pelanggan belum mengunggah foto bukti transfer.</p>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -992,6 +1122,21 @@ export default function AdminPanel() {
                   <CheckCircle className="w-5 h-5 mr-2" /> Konfirmasi Pembayaran
                 </button>
               </>
+            ) : selectedReceipt.status === 'menunggu pembayaran' ? (
+              <>
+                <button
+                  onClick={() => handleReject(selectedReceipt.id)}
+                  className="flex-1 px-4 py-3 border-2 border-red-200 text-red-600 bg-white hover:bg-red-50 rounded-xl font-bold transition-colors flex items-center justify-center"
+                >
+                  <XCircle className="w-5 h-5 mr-2" /> Tolak Pesanan
+                </button>
+                <button
+                  onClick={() => handleApprove(selectedReceipt.id)}
+                  className="flex-[2] px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-lg shadow-emerald-600/20 transition-all flex items-center justify-center"
+                >
+                  <CheckCircle className="w-5 h-5 mr-2" /> Konfirmasi Pembayaran
+                </button>
+              </>
             ) : (
               <button
                 onClick={() => setSelectedReceipt(null)}
@@ -1035,7 +1180,7 @@ export default function AdminPanel() {
     if (!isAddFieldOpen) return null;
 
     return (
-      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+      <div className={`fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in ${isPaymentModalOpen ? 'hidden' : ''}`}>
         <div className="bg-white rounded-3xl w-full max-w-lg max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
           <div className="flex justify-between items-center p-5 border-b border-gray-100 bg-gray-50">
             <h3 className="font-extrabold text-lg text-gray-900">Tambah Lapangan Baru</h3>
@@ -1116,53 +1261,39 @@ export default function AdminPanel() {
             {/* Rekening Pembayaran */}
             <div className="pt-2 border-t border-gray-100 mt-2">
               <div className="flex justify-between items-center mb-2">
-                <label className="block text-xs font-bold text-gray-700">Informasi Pembayaran Lapangan</label>
-                <button type="button" onClick={() => addPaymentMethod(false)} className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-1 rounded-md font-bold hover:bg-emerald-200">
-                  + Tambah Rekening
+                <label className="block text-xs font-bold text-gray-700">Metode Pembayaran Xendit</label>
+                <button type="button" onClick={() => openPaymentModal('new', 'add')} className="text-[10px] bg-emerald-600 text-white px-2 py-1 rounded-md font-bold hover:bg-emerald-700 transition-colors">
+                  + Tambah Metode
                 </button>
               </div>
-              <div className="space-y-3">
-                {(newField.paymentMethods || []).map((pm, idx) => (
-                  <div key={idx} className="relative p-3 border border-gray-200 rounded-xl bg-gray-50/50">
-                    {(newField.paymentMethods || []).length > 1 && (
-                      <button type="button" onClick={() => removePaymentMethod(idx, false)} className="absolute -top-2 -right-2 p-1 bg-red-100 text-red-500 rounded-full hover:bg-red-200 shadow-sm">
-                        <X className="w-3 h-3" />
-                      </button>
-                    )}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <div>
-                        <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase">Nama Bank/E-Wallet</label>
-                        <input
-                          type="text"
-                          placeholder="Cth: BCA / DANA"
-                          value={pm.bankName}
-                          onChange={(e) => handlePaymentMethodChange(idx, 'bankName', e.target.value, false)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-emerald-500 font-medium text-xs text-gray-900"
-                        />
+              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                {!newField.paymentMethods || newField.paymentMethods.length === 0 ? (
+                  <div className="p-4 text-center border-2 border-dashed border-gray-200 rounded-xl text-gray-400 bg-gray-50/50">
+                    <p className="font-bold text-xs">Belum ada metode pembayaran.</p>
+                    <p className="text-[10px]">Klik Tambah Metode untuk menambahkan.</p>
+                  </div>
+                ) : (
+                  newField.paymentMethods.map((pm, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-2.5 border border-gray-200 rounded-xl bg-white shadow-sm">
+                      <div className="flex flex-col">
+                        <span className="font-extrabold text-xs text-gray-800">{pm.bankName || 'QRIS'}</span>
+                        <div className="flex items-center gap-1.5 mt-0.5 text-[10px] font-medium">
+                          <span className={pm.isActive !== false ? "text-emerald-600" : "text-gray-400"}>
+                            {pm.isActive !== false ? "Aktif" : "Nonaktif"}
+                          </span>
+                        </div>
                       </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase">Nomor Rekening</label>
-                        <input
-                          type="text"
-                          placeholder="Cth: 1234567890"
-                          value={pm.bankAccount}
-                          onChange={(e) => handlePaymentMethodChange(idx, 'bankAccount', e.target.value, false)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-emerald-500 font-medium text-xs text-gray-900"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase">Atas Nama</label>
-                        <input
-                          type="text"
-                          placeholder="Cth: John Doe"
-                          value={pm.bankOwner}
-                          onChange={(e) => handlePaymentMethodChange(idx, 'bankOwner', e.target.value, false)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-emerald-500 font-medium text-xs text-gray-900"
-                        />
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button type="button" onClick={() => openPaymentModal('new', 'edit', idx)} className="px-2 py-1 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded text-[10px] font-bold transition-colors">
+                          Edit
+                        </button>
+                        <button type="button" onClick={() => removePaymentMethod(idx, false)} className="px-2 py-1 bg-red-50 text-red-500 hover:bg-red-100 rounded text-[10px] font-bold transition-colors">
+                          Hapus
+                        </button>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
 
@@ -1257,7 +1388,7 @@ export default function AdminPanel() {
     if (!isEditFieldOpen || !currentEditField) return null;
 
     return (
-      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+      <div className={`fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in ${isPaymentModalOpen ? 'hidden' : ''}`}>
         <div className="bg-white rounded-3xl w-full max-w-lg max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
           <div className="flex justify-between items-center p-5 border-b border-gray-100 bg-gray-50">
             <h3 className="font-extrabold text-lg text-gray-900">Edit Lapangan</h3>
@@ -1366,53 +1497,39 @@ export default function AdminPanel() {
             {/* Edit Rekening Pembayaran */}
             <div className="pt-2 border-t border-gray-100 mt-2">
               <div className="flex justify-between items-center mb-2">
-                <label className="block text-xs font-bold text-gray-700">Informasi Pembayaran Lapangan</label>
-                <button type="button" onClick={() => addPaymentMethod(true)} className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-1 rounded-md font-bold hover:bg-emerald-200">
-                  + Tambah Rekening
+                <label className="block text-xs font-bold text-gray-700">Metode Pembayaran Xendit</label>
+                <button type="button" onClick={() => openPaymentModal('edit', 'add')} className="text-[10px] bg-emerald-600 text-white px-2 py-1 rounded-md font-bold hover:bg-emerald-700 transition-colors">
+                  + Tambah Metode
                 </button>
               </div>
-              <div className="space-y-3">
-                {(currentEditField.paymentMethods || []).map((pm, idx) => (
-                  <div key={idx} className="relative p-3 border border-gray-200 rounded-xl bg-gray-50/50">
-                    {(currentEditField.paymentMethods || []).length > 1 && (
-                      <button type="button" onClick={() => removePaymentMethod(idx, true)} className="absolute -top-2 -right-2 p-1 bg-red-100 text-red-500 rounded-full hover:bg-red-200 shadow-sm">
-                        <X className="w-3 h-3" />
-                      </button>
-                    )}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <div>
-                        <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase">Nama Bank/E-Wallet</label>
-                        <input
-                          type="text"
-                          placeholder="Cth: BCA / DANA"
-                          value={pm.bankName}
-                          onChange={(e) => handlePaymentMethodChange(idx, 'bankName', e.target.value, true)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-emerald-500 font-medium text-xs text-gray-900"
-                        />
+              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                {!currentEditField.paymentMethods || currentEditField.paymentMethods.length === 0 ? (
+                  <div className="p-4 text-center border-2 border-dashed border-gray-200 rounded-xl text-gray-400 bg-gray-50/50">
+                    <p className="font-bold text-xs">Belum ada metode pembayaran.</p>
+                    <p className="text-[10px]">Klik Tambah Metode untuk menambahkan.</p>
+                  </div>
+                ) : (
+                  currentEditField.paymentMethods.map((pm, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-2.5 border border-gray-200 rounded-xl bg-white shadow-sm">
+                      <div className="flex flex-col">
+                        <span className="font-extrabold text-xs text-gray-800">{pm.bankName || 'QRIS'}</span>
+                        <div className="flex items-center gap-1.5 mt-0.5 text-[10px] font-medium">
+                          <span className={pm.isActive !== false ? "text-emerald-600" : "text-gray-400"}>
+                            {pm.isActive !== false ? "Aktif" : "Nonaktif"}
+                          </span>
+                        </div>
                       </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase">Nomor Rekening</label>
-                        <input
-                          type="text"
-                          placeholder="Cth: 1234567890"
-                          value={pm.bankAccount}
-                          onChange={(e) => handlePaymentMethodChange(idx, 'bankAccount', e.target.value, true)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-emerald-500 font-medium text-xs text-gray-900"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase">Atas Nama</label>
-                        <input
-                          type="text"
-                          placeholder="Cth: John Doe"
-                          value={pm.bankOwner}
-                          onChange={(e) => handlePaymentMethodChange(idx, 'bankOwner', e.target.value, true)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-emerald-500 font-medium text-xs text-gray-900"
-                        />
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button type="button" onClick={() => openPaymentModal('edit', 'edit', idx)} className="px-2 py-1 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded text-[10px] font-bold transition-colors">
+                          Edit
+                        </button>
+                        <button type="button" onClick={() => removePaymentMethod(idx, true)} className="px-2 py-1 bg-red-50 text-red-500 hover:bg-red-100 rounded text-[10px] font-bold transition-colors">
+                          Hapus
+                        </button>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
 
@@ -1793,6 +1910,110 @@ export default function AdminPanel() {
       </div>
     );
   };
+
+  const renderPaymentModal = () => {
+    if (!isPaymentModalOpen) return null;
+
+    return (
+      <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in">
+        <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col animate-scale-up border border-slate-100">
+          <div className="p-4 sm:p-5 border-b border-gray-100 flex justify-between items-center bg-slate-50/50">
+            <h3 className="font-extrabold text-gray-800 text-sm sm:text-base">
+              {paymentModalMode === 'add' ? 'Tambah Metode Baru' : 'Edit Metode'}
+            </h3>
+            <button onClick={closePaymentModal} className="p-1.5 text-gray-400 hover:text-gray-600 bg-white hover:bg-gray-100 rounded-lg shadow-sm border border-gray-200 transition-colors">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="p-4 sm:p-5 space-y-4">
+            <div>
+              <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase">Jenis Pembayaran</label>
+              <select
+                value={paymentFormData.type}
+                onChange={(e) => {
+                  const newType = e.target.value;
+                  setPaymentFormData({
+                    ...paymentFormData,
+                    type: newType,
+                    bankName: newType === 'QRIS' ? 'QRIS' : '',
+                    isActive: true
+                  });
+                }}
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-xl focus:ring-emerald-500 font-medium text-xs text-gray-900 bg-white"
+              >
+                <option value="Bank Transfer">Bank Transfer</option>
+                <option value="Virtual Account">Virtual Account</option>
+                <option value="E-Wallet">E-Wallet</option>
+                <option value="QRIS">QRIS</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase">Nama Bank / E-Wallet</label>
+              {paymentFormData.type === 'QRIS' ? (
+                <input
+                  type="text"
+                  value="QRIS"
+                  disabled
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-xl bg-gray-100 font-medium text-xs text-gray-500 cursor-not-allowed"
+                />
+              ) : paymentFormData.type === 'E-Wallet' ? (
+                <select
+                  value={paymentFormData.bankName}
+                  onChange={(e) => setPaymentFormData({ ...paymentFormData, bankName: e.target.value })}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-xl focus:ring-emerald-500 font-medium text-xs text-gray-900 bg-white"
+                >
+                  <option value="">Pilih E-Wallet</option>
+                  <option value="DANA">DANA</option>
+                  <option value="OVO">OVO</option>
+                  <option value="GoPay">GoPay</option>
+                  <option value="ShopeePay">ShopeePay</option>
+                  <option value="LinkAja">LinkAja</option>
+                </select>
+              ) : (
+                <select
+                  value={paymentFormData.bankName}
+                  onChange={(e) => setPaymentFormData({ ...paymentFormData, bankName: e.target.value })}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-xl focus:ring-emerald-500 font-medium text-xs text-gray-900 bg-white"
+                >
+                  <option value="">Pilih Bank / VA</option>
+                  {dbPaymentMethods
+                    .filter(m => {
+                      const n = m.name.toLowerCase();
+                      return !n.includes('dana') && !n.includes('ovo') && !n.includes('gopay') && !n.includes('shopee') && !n.includes('linkaja') && !n.includes('qris');
+                    })
+                    .map(method => (
+                      <option key={method.id} value={method.name}>{method.name}</option>
+                    ))}
+                </select>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase">Status</label>
+              <select
+                value={paymentFormData.isActive ? 'true' : 'false'}
+                onChange={(e) => setPaymentFormData({ ...paymentFormData, isActive: e.target.value === 'true' })}
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-xl focus:ring-emerald-500 font-medium text-xs text-gray-900 bg-white"
+              >
+                <option value="true">Aktif</option>
+                <option value="false">Nonaktif</option>
+              </select>
+            </div>
+          </div>
+          <div className="p-4 sm:p-5 border-t border-gray-100 bg-gray-50 flex justify-end gap-3">
+            <button onClick={closePaymentModal} className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-xl text-xs font-bold hover:bg-gray-50 shadow-sm transition-colors">
+              Batal
+            </button>
+            <button onClick={savePaymentModal} className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 shadow-sm transition-colors flex items-center gap-2">
+              <Check className="w-3.5 h-3.5" /> Simpan Perubahan
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   if (status === "loading" || !session || session.user.type !== "admin") {
     return <div className="flex h-screen items-center justify-center bg-[#0f172a]"><div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div></div>;
   }
@@ -1859,6 +2080,7 @@ export default function AdminPanel() {
       {renderAddFieldModal()}
       {renderDeleteConfirmModal()}
       {renderScheduleModal()}
+      {renderPaymentModal()}
 
       {/* Toast Notification */}
       {toast.show && (

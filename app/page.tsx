@@ -4,12 +4,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Search, Calendar, Clock, Star, MapPin, Upload,
   User, LogOut, ArrowLeft, CheckCircle2, XCircle, ShieldCheck,
-  Image as ImageIcon, Home, FileText, CheckCircle, Clock3, XOctagon, AlertTriangle, ChevronRight
+  Image as ImageIcon, Home, FileText, CheckCircle, Clock3, XOctagon, AlertTriangle, ChevronRight, ChevronUp, ChevronDown, X, Download, QrCode, Wallet, CreditCard, Copy
 } from 'lucide-react';
 import { useSession, signIn, signOut } from 'next-auth/react';
 
 
-
+import QRCode from 'react-qr-code';
 
 export default function App() {
   const { data: session } = useSession();
@@ -66,6 +66,34 @@ export default function App() {
   const [isSubmittingMethod, setIsSubmittingMethod] = useState(false);
   const [isSubmittingReceipt, setIsSubmittingReceipt] = useState(false);
 
+  // E-Wallet Specific States
+  const [ovoNumber, setOvoNumber] = useState('');
+  const [isSubmittingOvo, setIsSubmittingOvo] = useState(false);
+
+  const handleSubmitOvo = async () => {
+    if (!ovoNumber || ovoNumber.length < 9) {
+      showToast("Nomor OVO tidak valid", "error");
+      return;
+    }
+    setIsSubmittingOvo(true);
+    try {
+      const res = await fetch('/api/bookings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: createdBooking?.id, customerPhone: `0${ovoNumber}` })
+      });
+      if (res.ok) {
+        showToast("Permintaan pembayaran dikirim ke aplikasi OVO Anda", "success");
+      } else {
+        throw new Error("Gagal mengirim");
+      }
+    } catch (err) {
+      showToast("Gagal mengirim permintaan OVO", "error");
+    } finally {
+      setIsSubmittingOvo(false);
+    }
+  };
+
   // Copy States
   const [copiedBCA, setCopiedBCA] = useState(false);
   const [copiedNominal, setCopiedNominal] = useState(false);
@@ -91,9 +119,9 @@ export default function App() {
   const [hoveredStar, setHoveredStar] = useState(0);
   const [selectedStar, setSelectedStar] = useState(0);
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
-
-  // Mock Data History Pesanan 
+  const [paymentPopup, setPaymentPopup] = useState<{ isOpen: boolean, type: string, value: string, title: string, booking: any }>({ isOpen: false, type: '', value: '', title: '', booking: null });
   const [myBookings, setMyBookings] = useState([]);
+  const [myBookingsPage, setMyBookingsPage] = useState(1);
 
   // Toast State
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
@@ -106,6 +134,50 @@ export default function App() {
   useEffect(() => {
     window.alert = (msg) => showToast(msg, 'error');
   }, []);
+
+  // Load session from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('bookingSession');
+    if (saved) {
+      try {
+        const data = JSON.parse(saved);
+        if (data.createdBooking && data.createdBooking.status === 'MENUNGGU') {
+          setCreatedBooking(data.createdBooking);
+          setSelectedField(data.selectedField);
+          setBookingDate(new Date(data.bookingDate));
+          setStartHour(data.startHour);
+          setEndHour(data.endHour);
+          setUserPhoneInput(data.userPhoneInput);
+          setSelectedPaymentMethod(data.selectedPaymentMethod);
+          setCheckoutStep(data.checkoutStep);
+          setCurrentView(data.currentView);
+        } else {
+          localStorage.removeItem('bookingSession');
+        }
+      } catch (e) {
+        localStorage.removeItem('bookingSession');
+      }
+    }
+  }, []);
+
+  // Save session to localStorage when it changes
+  useEffect(() => {
+    if (currentView === 'checkout' && checkoutStep === 'finish' && createdBooking) {
+      localStorage.setItem('bookingSession', JSON.stringify({
+        createdBooking,
+        selectedField,
+        bookingDate,
+        startHour,
+        endHour,
+        userPhoneInput,
+        selectedPaymentMethod,
+        checkoutStep,
+        currentView
+      }));
+    } else if (currentView === 'home' || currentView === 'detail' || (currentView === 'checkout' && checkoutStep === 'select_method' && !createdBooking)) {
+      localStorage.removeItem('bookingSession');
+    }
+  }, [currentView, checkoutStep, createdBooking, selectedField, bookingDate, startHour, endHour, userPhoneInput, selectedPaymentMethod]);
 
   // Handle mobile phone native back button (popstate)
   useEffect(() => {
@@ -136,6 +208,12 @@ export default function App() {
     }
   }, [currentView]);
 
+  const [paymentInstructions, setPaymentInstructions] = useState([]);
+  const [dbPaymentMethods, setDbPaymentMethods] = useState([]);
+  const [instructionTab, setInstructionTab] = useState(0);
+  const [openDropdownGroup, setOpenDropdownGroup] = useState(null);
+  const [searchBankQuery, setSearchBankQuery] = useState('');
+
   useEffect(() => {
     fetch('/api/fields?public=1')
       .then(res => res.json())
@@ -165,6 +243,26 @@ export default function App() {
         console.error("Error fetching fields", err);
         setIsLoadingFields(false);
       });
+
+    // Fetch Payment Instructions
+    fetch('/api/payment-instructions')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setPaymentInstructions(data);
+        }
+      })
+      .catch(err => console.error("Error fetching payment instructions", err));
+
+    // Fetch DB Payment Methods
+    fetch('/api/payment-methods')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setDbPaymentMethods(data);
+        }
+      })
+      .catch(err => console.error("Error fetching payment methods", err));
   }, []);
 
 
@@ -182,6 +280,7 @@ export default function App() {
             time: `${b.start_hour}:00 - ${b.end_hour}:00`,
             price: Number(b.total_price),
             status: b.status.toLowerCase(),
+            receiptImg: b.receipt_img,
             rated: false
           }));
           setMyBookings(adapted);
@@ -382,6 +481,34 @@ export default function App() {
     const duration = Number(endHour) - Number(startHour);
     const total = duration * selectedField.price;
 
+    let actualPaymentMethodName = selectedPaymentMethod;
+    if (selectedPaymentMethod.startsWith('custom_admin_')) {
+      const idx = parseInt(selectedPaymentMethod.replace('custom_admin_', ''));
+      const pms = selectedField?.paymentMethods || [];
+      if (pms[idx] && pms[idx].bankName) {
+        actualPaymentMethodName = pms[idx].bankName;
+      }
+    } else if (selectedPaymentMethod === 'qris') {
+      actualPaymentMethodName = 'qris';
+    } else if (selectedPaymentMethod.startsWith('ewallet_auto_')) {
+      actualPaymentMethodName = selectedPaymentMethod.replace('ewallet_auto_', '');
+    } else if (selectedPaymentMethod.startsWith('va_auto_')) {
+      actualPaymentMethodName = selectedPaymentMethod.replace('va_auto_', '');
+    }
+
+    let paymentMethodId = null;
+    if (dbPaymentMethods && dbPaymentMethods.length > 0) {
+      const n = actualPaymentMethodName.toLowerCase();
+      const matched = dbPaymentMethods.find((dbpm: any) => {
+        const dbName = (dbpm.name || '').toLowerCase();
+        const dbCode = (dbpm.code || '').toLowerCase();
+        return n === dbName || n.includes(dbName.replace(' virtual account', '')) || n.includes(dbCode.replace('_va', ''));
+      });
+      if (matched) {
+        paymentMethodId = matched.id;
+      }
+    }
+
     try {
       const response = await fetch('/api/bookings', {
         method: 'POST',
@@ -396,7 +523,8 @@ export default function App() {
           paymentMethod: 'Transfer',
           receiptImg: null,
           customerPhone: userPhoneInput,
-          paymentMethodCode: selectedPaymentMethod
+          paymentMethodCode: actualPaymentMethodName,
+          paymentMethodId: paymentMethodId
         })
       });
       const data = await response.json();
@@ -412,6 +540,27 @@ export default function App() {
       showToast("Terjadi kesalahan jaringan", "error");
     } finally {
       setIsSubmittingMethod(false);
+    }
+  };
+
+  const handleDownloadQR = async () => {
+    if (!createdBooking?.qr_string) return;
+    try {
+      const url = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(createdBooking.qr_string)}`;
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const objectUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = `QRIS-${createdBooking.booking_code || 'Payment'}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      console.error("Gagal mendownload QR:", err);
+      // Fallback
+      window.open(`https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(createdBooking.qr_string)}`, '_blank');
     }
   };
 
@@ -470,9 +619,9 @@ export default function App() {
 
   const confirmCancel = (id) => {
     fetch('/api/bookings', {
-      method: 'PUT',
+      method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, status: 'DIBATALKAN' })
+      body: JSON.stringify({ id })
     }).then(() => {
       fetchMyBookings();
       setConfirmCancelId(null);
@@ -656,98 +805,166 @@ export default function App() {
     </div>
   );
 
-  const renderMyBookingsView = () => (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-6 animate-fade-in">
-      <h1 className="text-xl sm:text-2xl font-extrabold text-gray-900 mb-5">Booking Lapang (Pesanan Saya)</h1>
+  const renderMyBookingsView = () => {
+    const ITEMS_PER_PAGE = 10;
+    const totalMyBookingsPages = Math.ceil(myBookings.length / ITEMS_PER_PAGE);
+    const activeMyBookingsPage = myBookingsPage > totalMyBookingsPages ? 1 : myBookingsPage;
+    const paginatedMyBookings = myBookings.slice((activeMyBookingsPage - 1) * ITEMS_PER_PAGE, activeMyBookingsPage * ITEMS_PER_PAGE);
 
-      {myBookings.length === 0 ? (
-        <div className="bg-white rounded-2xl p-8 text-center shadow-sm border border-gray-100">
-          <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-          <h2 className="text-base font-bold text-gray-800">Belum Ada Transaksi</h2>
-          <p className="text-xs text-gray-500 mt-1.5">Anda belum melakukan pemesanan lapangan.</p>
-          <button onClick={() => setCurrentView('home')} className="mt-5 bg-emerald-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-md">
-            Cari Lapangan Sekarang
-          </button>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {myBookings.map((bkg, index) => {
-            let statusColor = "bg-yellow-100 text-yellow-800 border-yellow-200";
-            let StatusIcon = Clock3;
-            let statusText = "Menunggu Konfirmasi";
+    return (
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-6 animate-fade-in">
+        <h1 className="text-xl sm:text-2xl font-extrabold text-gray-900 mb-5">Booking Lapang (Pesanan Saya)</h1>
 
-            if (bkg.status === 'dikonfirmasi') {
-              statusColor = "bg-emerald-100 text-emerald-800 border-emerald-200";
-              StatusIcon = CheckCircle;
-              statusText = "Pesanan Dikonfirmasi";
-            } else if (bkg.status === 'ditolak' || bkg.status === 'dibatalkan') {
-              statusColor = "bg-red-100 text-red-800 border-red-200";
-              StatusIcon = XOctagon;
-              statusText = bkg.status === 'dibatalkan' ? "Pesanan Dibatalkan" : "Pesanan Ditolak";
-            }
+        {myBookings.length === 0 ? (
+          <div className="bg-white rounded-2xl p-8 text-center shadow-sm border border-gray-100">
+            <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+            <h2 className="text-base font-bold text-gray-800">Belum Ada Transaksi</h2>
+            <p className="text-xs text-gray-500 mt-1.5">Anda belum melakukan pemesanan lapangan.</p>
+            <button onClick={() => setCurrentView('home')} className="mt-5 bg-emerald-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-md">
+              Cari Lapangan Sekarang
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="space-y-3">
+              {paginatedMyBookings.map((bkg, index) => {
+                let statusColor = "bg-yellow-100 text-yellow-800 border-yellow-200";
+                let StatusIcon = Clock3;
+                let statusText = "Menunggu Konfirmasi";
 
-            return (
-              <div key={index} className={`bg-white rounded-2xl shadow-sm border p-3.5 sm:p-4 flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center ${bkg.status === 'dibatalkan' ? 'border-gray-200 opacity-60' : 'border-gray-100'}`}>
-                <div className="w-full sm:w-auto flex-1">
-                  <div className="flex justify-between items-start mb-1.5 sm:mb-1">
-                    <p className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">{bkg.bookingCode}</p>
-                    <div className={`sm:hidden flex items-center px-1.5 py-0.5 rounded-md border text-[9px] font-bold ${statusColor}`}>
-                      <StatusIcon className="w-2.5 h-2.5 mr-1" /> {statusText}
+                if (bkg.status === 'dikonfirmasi') {
+                  statusColor = "bg-emerald-100 text-emerald-800 border-emerald-200";
+                  StatusIcon = CheckCircle;
+                  statusText = "Pesanan Dikonfirmasi";
+                } else if (bkg.status === 'ditolak' || bkg.status === 'dibatalkan') {
+                  statusColor = "bg-red-100 text-red-800 border-red-200";
+                  StatusIcon = XOctagon;
+                  statusText = bkg.status === 'dibatalkan' ? "Pesanan Dibatalkan" : "Pesanan Ditolak";
+                }
+
+                return (
+                  <div key={index} className={`bg-white rounded-2xl shadow-sm border p-3.5 sm:p-4 flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center ${bkg.status === 'dibatalkan' ? 'border-gray-200 opacity-60' : 'border-gray-100'}`}>
+                    <div className="w-full sm:w-auto flex-1">
+                      <div className="flex justify-between items-start mb-1.5 sm:mb-1">
+                        <p className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">{bkg.bookingCode}</p>
+                        <div className={`sm:hidden flex items-center px-1.5 py-0.5 rounded-md border text-[9px] font-bold ${statusColor}`}>
+                          <StatusIcon className="w-2.5 h-2.5 mr-1" /> {statusText}
+                        </div>
+                      </div>
+                      <h3 className="font-extrabold text-gray-900 text-sm sm:text-base mb-1 leading-tight">{bkg.fieldName}</h3>
+                      <div className="flex items-center text-[11px] sm:text-xs text-gray-600 font-medium">
+                        <Calendar className="w-3 h-3 mr-1" />
+                        {bkg.date}
+                        <span className="mx-1.5 text-gray-300">|</span>
+                        <Clock className="w-3 h-3 mr-1" />
+                        {bkg.time}
+                      </div>
+
+                      {/* Action Buttons Container */}
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {/* Tombol Lihat Kode Pembayaran */}
+                        {bkg.receiptImg && (bkg.receiptImg.startsWith('QR_STRING:') || bkg.receiptImg.startsWith('CHECKOUT_URL:') || bkg.receiptImg.startsWith('VA_NUMBER:')) && (bkg.status === 'menunggu pembayaran' || bkg.status === 'menunggu') && (
+                          <button
+                            onClick={() => {
+                              if (bkg.receiptImg.startsWith('QR_STRING:')) {
+                                setPaymentPopup({ isOpen: true, type: 'qris', value: bkg.receiptImg.replace('QR_STRING:', ''), title: 'Scan QRIS', booking: bkg });
+                              } else if (bkg.receiptImg.startsWith('CHECKOUT_URL:')) {
+                                setPaymentPopup({ isOpen: true, type: 'url', value: bkg.receiptImg.replace('CHECKOUT_URL:', ''), title: 'Link Pembayaran E-Wallet', booking: bkg });
+                              } else if (bkg.receiptImg.startsWith('VA_NUMBER:')) {
+                                const parts = bkg.receiptImg.split(':');
+                                setPaymentPopup({ isOpen: true, type: 'va', value: parts[2], title: `Virtual Account ${parts[1]?.toUpperCase() || ''}`, booking: bkg });
+                              }
+                            }}
+                            className="inline-flex items-center justify-center px-3 py-1.5 border border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg text-[10px] sm:text-xs font-bold transition-colors shadow-sm w-full sm:w-auto"
+                          >
+                            <QrCode className="w-3 h-3 mr-1" /> Kode Pembayaran
+                          </button>
+                        )}
+
+                        {/* Tombol Cancel (Khusus untuk status Menunggu) */}
+                        {(bkg.status === 'menunggu' || bkg.status === 'menunggu pembayaran') && (
+                          <button
+                            onClick={() => setConfirmCancelId(bkg.id)}
+                            className="inline-flex items-center justify-center px-3 py-1.5 border border-red-200 text-red-600 hover:bg-red-50 rounded-lg text-[10px] sm:text-xs font-bold transition-colors w-full sm:w-auto"
+                          >
+                            <XOctagon className="w-3 h-3 mr-1" /> Batalkan Pesanan
+                          </button>
+                        )}
+
+                        {/* Tombol Beri Ulasan (Khusus untuk status Dikonfirmasi yang belum di-rate) */}
+                        {bkg.status === 'dikonfirmasi' && !bkg.rated && (
+                          <button
+                            onClick={() => setRatingBooking(bkg)}
+                            className="inline-flex items-center justify-center px-3 py-1.5 border border-yellow-300 text-yellow-700 bg-yellow-50 hover:bg-yellow-100 rounded-lg text-[10px] sm:text-xs font-bold transition-colors shadow-sm w-full sm:w-auto"
+                          >
+                            <Star className="w-3 h-3 mr-1 fill-current" /> Beri Ulasan
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Jika sudah diulas */}
+                      {bkg.status === 'dikonfirmasi' && bkg.rated && (
+                        <div className="mt-3 inline-flex items-center px-2.5 py-1 bg-gray-50 border border-gray-200 rounded-md text-[10px] font-bold text-gray-600">
+                          Ulasan Anda: <Star className="w-2.5 h-2.5 ml-1 text-yellow-500 fill-current" /> {bkg.rating}/5
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-row sm:flex-col justify-between items-center sm:items-end w-full sm:w-auto mt-1 sm:mt-0 pt-2 sm:pt-0 border-t sm:border-0 border-gray-100">
+                      <div className="text-left sm:text-right">
+                        <p className="text-[9px] text-gray-500 font-medium hidden sm:block mb-0.5">Total Biaya</p>
+                        <p className="font-extrabold text-emerald-600 text-sm sm:text-base">Rp {bkg.price.toLocaleString('id-ID')}</p>
+                      </div>
+                      <div className={`hidden sm:flex items-center mt-1.5 px-2 py-1 rounded-md border text-[10px] font-bold ${statusColor}`}>
+                        <StatusIcon className="w-3 h-3 mr-1" /> {statusText}
+                      </div>
                     </div>
                   </div>
-                  <h3 className="font-extrabold text-gray-900 text-sm sm:text-base mb-1 leading-tight">{bkg.fieldName}</h3>
-                  <div className="flex items-center text-[11px] sm:text-xs text-gray-600 font-medium">
-                    <Calendar className="w-3 h-3 mr-1" />
-                    {bkg.date}
-                    <span className="mx-1.5 text-gray-300">|</span>
-                    <Clock className="w-3 h-3 mr-1" />
-                    {bkg.time}
-                  </div>
+                );
+              })}
+            </div>
 
-                  {/* Tombol Cancel (Khusus untuk status Menunggu) */}
-                  {bkg.status === 'menunggu' && (
-                    <button
-                      onClick={() => setConfirmCancelId(bkg.id)}
-                      className="mt-3 inline-flex items-center justify-center px-3 py-1.5 border border-red-200 text-red-600 hover:bg-red-50 rounded-lg text-[10px] sm:text-xs font-bold transition-colors w-full sm:w-auto"
-                    >
-                      <XOctagon className="w-3 h-3 mr-1" /> Batalkan Pesanan
-                    </button>
-                  )}
-
-                  {/* Tombol Beri Ulasan (Khusus untuk status Dikonfirmasi yang belum di-rate) */}
-                  {bkg.status === 'dikonfirmasi' && !bkg.rated && (
-                    <button
-                      onClick={() => setRatingBooking(bkg)}
-                      className="mt-3 inline-flex items-center justify-center px-3 py-1.5 border border-yellow-300 text-yellow-700 bg-yellow-50 hover:bg-yellow-100 rounded-lg text-[10px] sm:text-xs font-bold transition-colors w-full sm:w-auto shadow-sm"
-                    >
-                      <Star className="w-3 h-3 mr-1 fill-current" /> Beri Ulasan
-                    </button>
-                  )}
-
-                  {/* Jika sudah diulas */}
-                  {bkg.status === 'dikonfirmasi' && bkg.rated && (
-                    <div className="mt-3 inline-flex items-center px-2.5 py-1 bg-gray-50 border border-gray-200 rounded-md text-[10px] font-bold text-gray-600">
-                      Ulasan Anda: <Star className="w-2.5 h-2.5 ml-1 text-yellow-500 fill-current" /> {bkg.rating}/5
-                    </div>
-                  )}
+            {/* Pagination Controls for User Bookings */}
+            {totalMyBookingsPages > 1 && (
+              <div className="flex justify-center items-center mt-6 gap-2 border-t border-gray-100 pt-4">
+                <button
+                  onClick={() => { setMyBookingsPage(p => Math.max(1, p - 1)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                  disabled={activeMyBookingsPage === 1}
+                  className="p-2 rounded-xl border border-gray-200 text-gray-600 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm flex items-center justify-center active:scale-95"
+                  title="Halaman Sebelumnya"
+                >
+                  <ChevronRight className="w-4 h-4 rotate-180" />
+                </button>
+                <div className="flex gap-1.5">
+                  {Array.from({ length: totalMyBookingsPages }).map((_, i) => {
+                    const pageNum = i + 1;
+                    const isActive = activeMyBookingsPage === pageNum;
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => { setMyBookingsPage(pageNum); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                        className={`w-9 h-9 rounded-xl font-bold text-xs flex items-center justify-center transition-all ${isActive ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 hover:border-gray-300'}`}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
                 </div>
-
-                <div className="flex flex-row sm:flex-col justify-between items-center sm:items-end w-full sm:w-auto mt-1 sm:mt-0 pt-2 sm:pt-0 border-t sm:border-0 border-gray-100">
-                  <div className="text-left sm:text-right">
-                    <p className="text-[9px] text-gray-500 font-medium hidden sm:block mb-0.5">Total Biaya</p>
-                    <p className="font-extrabold text-emerald-600 text-sm sm:text-base">Rp {bkg.price.toLocaleString('id-ID')}</p>
-                  </div>
-                  <div className={`hidden sm:flex items-center mt-1.5 px-2 py-1 rounded-md border text-[10px] font-bold ${statusColor}`}>
-                    <StatusIcon className="w-3 h-3 mr-1" /> {statusText}
-                  </div>
-                </div>
+                <button
+                  onClick={() => { setMyBookingsPage(p => Math.min(totalMyBookingsPages, p + 1)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                  disabled={activeMyBookingsPage === totalMyBookingsPages}
+                  className="p-2 rounded-xl border border-gray-200 text-gray-600 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm flex items-center justify-center active:scale-95"
+                  title="Halaman Selanjutnya"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
               </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  );
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
 
   const renderDetailView = () => {
     if (!selectedField) return null;
@@ -1100,9 +1317,67 @@ export default function App() {
       }
     };
 
+    const bankToIdMap: Record<string, number> = {
+      'qris': 1,
+      'bca': 2,
+      'mandiri': 3,
+      'bri': 4,
+      'bni': 5,
+      'bjb': 6,
+      'bjb syariah': 6,
+      'bnc': 7,
+      'bsi': 8,
+      'bss': 9,
+      'cimb': 10,
+      'octo': 10,
+      'muamalat': 11,
+      'permata': 12,
+      'gopay': 13,
+      'ovo': 14,
+      'dana': 15,
+      'linkaja': 16,
+      'shopee': 17,
+      'shopeepay': 17,
+      'alfamart': 99
+    };
+
     if (selectedField?.paymentMethods && selectedField.paymentMethods.length > 0) {
-      selectedField.paymentMethods.forEach((pm, idx) => {
+      // Create a copy of payment methods and automatically inject QRIS
+      const fieldPMs = [...selectedField.paymentMethods];
+      // Check if QRIS is already there to avoid duplicates
+      if (!fieldPMs.some(pm => (pm.bankName || '').toLowerCase().includes('qris'))) {
+        fieldPMs.push({
+          bankName: 'QRIS CODE',
+          bankAccount: 'Otomatis (Semua E-Wallet/M-Banking)',
+          bankOwner: 'Pembayaran Instan',
+          isQris: true
+        });
+      }
+
+      const dummyAccounts: Record<string, string> = {
+        'bca': '3816523906568',
+        'mandiri': '8860863623046',
+        'bri': '1328216932121',
+        'bni': '880849021633',
+        'bjb': '1234999968795947',
+        'bjb syariah': '1234999968795948',
+        'bnc': '9010001050411994',
+        'bsi': '934733371937',
+        'permata': '729361827494',
+        'muamalat': '9010001112341234234'
+      };
+
+      const dummyEwallets: Record<string, string> = {
+        'dana': '081234567890',
+        'ovo': '081234567891',
+        'gopay': '081234567892',
+        'shopeepay': '081234567893',
+        'linkaja': '081234567894'
+      };
+
+      fieldPMs.forEach((pm, idx) => {
         const pmOwner = pm.bankOwner;
+        const pmKey = pm.isQris ? 'qris' : `custom_admin_${idx}`;
 
         let badgeText = (pm.bankName || '').toUpperCase();
         if (badgeText.includes('BCA')) badgeText = 'BCA';
@@ -1110,19 +1385,40 @@ export default function App() {
         else if (badgeText.includes('DANA')) badgeText = 'DANA';
         else if (badgeText.includes('MANDIRI')) badgeText = 'MANDIRI';
         else if (badgeText.includes('BSI')) badgeText = 'BSI';
+        else if (badgeText.includes('QRIS')) badgeText = 'QRIS';
         else badgeText = badgeText.split(' ')[0] || 'TRANSFER';
 
-        const isEwallet = /dana|gopay|ovo|shopee|linkaja/i.test(pm.bankName);
+        const isEwallet = /dana|gopay|ovo|shopee|linkaja|qris/i.test(pm.bankName);
         const methodType = isEwallet ? 'E-WALLET' : 'TRANSFER MANUAL';
-        const instructionPrefix = isEwallet ? 'Transfer DANA/E-Wallet' : 'Transfer Manual';
+        const instructionPrefix = isEwallet ? (badgeText === 'QRIS' ? 'Pembayaran' : 'Transfer DANA/E-Wallet') : 'Transfer Manual';
 
-        accountMap[`custom_admin_${idx}`] = {
+        let dbInstructions = [];
+        if (paymentInstructions && paymentInstructions.length > 0) {
+          const matchedInstructions = paymentInstructions.filter((inst: any) => {
+            const lowerBadge = badgeText.toLowerCase();
+            const targetId = bankToIdMap[lowerBadge];
+            if (targetId && Number(inst.payment_method_id) === targetId) return true;
+            return (inst.pm_name || '').toLowerCase().includes(lowerBadge) ||
+              (inst.pm_code || '').toLowerCase().includes(lowerBadge) ||
+              (inst.title || '').toLowerCase().includes(lowerBadge);
+          });
+          dbInstructions = matchedInstructions;
+        }
+
+        const lowerBadgeForDummy = badgeText.toLowerCase();
+        let assignedNumber = pm.isQris ? pm.bankAccount : (isEwallet ? dummyEwallets[lowerBadgeForDummy] : dummyAccounts[lowerBadgeForDummy]);
+        if (!assignedNumber) assignedNumber = pm.bankAccount || (isEwallet ? '081234567890' : '1234567890');
+
+        const forcedOwnerName = pm.isQris ? 'Pembayaran Instan' : 'Yayasan Budi Mandiri';
+
+        accountMap[pmKey] = {
           badge: badgeText,
           methodType: methodType,
           title: (pm.bankName || 'Bank Transfer') + (methodType === 'TRANSFER MANUAL' ? ' (Transfer Manual)' : ''),
-          number: pm.bankAccount || '-',
-          name: pmOwner,
+          number: assignedNumber,
+          name: forcedOwnerName,
           instructionTitle: `Instruksi ${instructionPrefix} ${badgeText}`,
+          dbInstructions: dbInstructions,
           instructions: [
             'Transfer sesuai nominal (hingga 3 digit terakhir) ke rekening berikut:',
             `${pm.bankName || 'Bank'}: ${pm.bankAccount || '-'}`,
@@ -1132,6 +1428,9 @@ export default function App() {
           ]
         };
       });
+
+      // Dinonaktifkan: Kita tidak lagi meng-inject default VAs atau E-Wallets secara dinamis
+      // Semua akan mengacu secara mutlak pada apa yang dikonfigurasi admin
     }
 
     const currentAccount = accountMap[selectedPaymentMethod] || accountMap['bca'] || Object.values(accountMap)[0];
@@ -1215,73 +1514,205 @@ export default function App() {
 
                 const vaMethods = [];
                 const ewalletMethods = [];
-                const otherMethods = [];
+                const qrisMethods = [];
 
-                selectedField.paymentMethods.forEach((pm, idx) => {
+                let renderFieldPMs = (selectedField.paymentMethods || []).filter((pm: any) => pm.isActive !== false);
+
+                // Fallback: If admin hasn't configured ANY active payment methods, generate QRIS as fallback
+                if (renderFieldPMs.length === 0) {
+                  renderFieldPMs.push({
+                    bankName: 'QRIS CODE',
+                    bankAccount: 'Otomatis',
+                    bankOwner: 'Pembayaran Instan',
+                    isQris: true,
+                    isActive: true
+                  });
+                }
+
+                renderFieldPMs.forEach((pm: any, originalIdx: number) => {
                   const n = (pm.bankName || '').toLowerCase();
-                  const item = { ...pm, idx };
-                  if (n.includes('dana') || n.includes('gopay') || n.includes('ovo') || n.includes('shopee') || n.includes('linkaja')) {
+                  const pmKey = pm.isQris ? 'qris' : `custom_admin_${originalIdx}`;
+                  const item = { ...pm, key: pmKey };
+
+                  if (pm.isQris || n.includes('qris')) {
+                    qrisMethods.push(item);
+                  } else if (n.includes('dana') || n.includes('gopay') || n.includes('ovo') || n.includes('shopee') || n.includes('linkaja') || n.includes('e-wallet')) {
                     ewalletMethods.push(item);
-                  } else if (n.includes('bca') || n.includes('bri') || n.includes('bni') || n.includes('mandiri') || n.includes('bsi') || n.includes('bank') || n.includes('virtual account')) {
-                    vaMethods.push(item);
                   } else {
-                    otherMethods.push(item);
+                    // Semua yang tidak teridentifikasi sebagai QRIS atau E-Wallet dianggap sebagai Bank Transfer / Virtual Account
+                    vaMethods.push(item);
                   }
                 });
 
-                const renderGroup = (title, icon, items) => {
+                const handleGroupClick = (title, items) => {
+                  if (items.length === 0) return;
+
+                  const isCurrentlyExpanded = expandedPaymentGroups[title] === true;
+
+                  if (isCurrentlyExpanded) {
+                    // Collapse and deselect
+                    setExpandedPaymentGroups({ 'Bank Transfer': false, 'E-Wallet': false, 'QR Code': false });
+                    if (items.some(pm => pm.key === selectedPaymentMethod)) {
+                      setSelectedPaymentMethod(''); // Deselect if an item in this group was selected
+                    }
+                    setOpenDropdownGroup(null);
+                    setSearchBankQuery('');
+                  } else {
+                    // Expand
+                    const newExpanded = { 'Bank Transfer': false, 'E-Wallet': false, 'QR Code': false };
+                    newExpanded[title] = true;
+                    setExpandedPaymentGroups(newExpanded);
+                    setSearchBankQuery(''); // Reset search
+
+                    if (title === 'QR Code' && items.length === 1) {
+                      setSelectedPaymentMethod(items[0].key);
+                    }
+                  }
+                };
+
+                const renderGroup = (title, items) => {
                   if (items.length === 0) return null;
-                  const isExpanded = expandedPaymentGroups[title] !== false;
+
+                  const isExpanded = expandedPaymentGroups[title] === true;
+                  const isCategorySelected = isExpanded;
+
+                  const displayLogos = items.slice(0, 2);
+                  const extraCount = items.length - 2;
+
                   return (
-                    <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
+                    <div className="border-b border-gray-100 last:border-b-0 bg-white transition-all">
                       <div
-                        className="flex items-center justify-between p-3.5 bg-slate-50 border-b border-gray-200 cursor-pointer hover:bg-slate-100 transition-colors"
-                        onClick={() => togglePaymentGroup(title)}
+                        className="flex items-center justify-between p-4 cursor-pointer hover:bg-slate-50 transition-colors"
+                        onClick={() => handleGroupClick(title, items)}
                       >
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-lg bg-white shadow-sm border border-gray-200 flex items-center justify-center text-emerald-600">
-                            {icon}
+                        <div className="flex items-center gap-3 sm:gap-4 shrink-0 mr-2">
+                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${isCategorySelected ? 'border-blue-600' : 'border-gray-300'}`}>
+                            {isCategorySelected && <div className="w-2.5 h-2.5 bg-blue-600 rounded-full"></div>}
                           </div>
-                          <span className="font-extrabold text-sm text-gray-800">{title}</span>
+                          <span className="font-medium text-sm sm:text-[15px] text-gray-800 whitespace-nowrap">{title}</span>
                         </div>
-                        <svg className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? '' : 'rotate-180'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
-                      </div>
-                      {isExpanded && (
-                        <div className="p-2 space-y-1">
-                          {items.map((pm) => {
+                        <div className="flex items-center gap-1.5">
+                          {displayLogos.map((pm, i) => {
                             const n = (pm.bankName || '').toLowerCase();
                             let logo = null;
-                            if (n.includes('bca')) logo = 'https://upload.wikimedia.org/wikipedia/commons/5/5c/Bank_Central_Asia.svg';
-                            else if (n.includes('bri')) logo = 'https://upload.wikimedia.org/wikipedia/commons/2/2e/BRI_2020.svg';
-                            else if (n.includes('dana')) logo = 'https://upload.wikimedia.org/wikipedia/commons/7/72/Logo_dana_blue.svg';
-                            else if (n.includes('mandiri')) logo = 'https://upload.wikimedia.org/wikipedia/commons/a/ad/Bank_Mandiri_logo_2016.svg';
-                            else if (n.includes('bni')) logo = 'https://upload.wikimedia.org/wikipedia/id/5/55/BNI_logo.svg';
-                            else if (n.includes('ovo')) logo = 'https://upload.wikimedia.org/wikipedia/commons/e/e1/OVO_logo.svg';
-                            else if (n.includes('gopay')) logo = 'https://upload.wikimedia.org/wikipedia/commons/8/86/Gopay_logo.svg';
-                            else if (n.includes('shopee')) logo = 'https://upload.wikimedia.org/wikipedia/commons/f/fe/Shopee.svg';
-                            else if (n.includes('bsi')) logo = 'https://upload.wikimedia.org/wikipedia/commons/a/a0/Bank_Syariah_Indonesia.svg';
+
+                            // 1. Coba ambil logo dari database
+                            if (dbPaymentMethods && dbPaymentMethods.length > 0) {
+                              const matched = dbPaymentMethods.find((dbpm: any) => {
+                                const dbName = (dbpm.name || '').toLowerCase();
+                                const dbCode = (dbpm.code || '').toLowerCase();
+                                return n === dbName || n.includes(dbName.replace(' virtual account', '')) || n.includes(dbCode.replace('_va', ''));
+                              });
+                              if (matched && matched.logo_url) {
+                                logo = matched.logo_url;
+                              }
+                            }
 
                             return (
-                              <label key={pm.idx} className={`flex items-center p-3 border rounded-xl cursor-pointer transition-all ${selectedPaymentMethod === `custom_admin_${pm.idx}` ? 'border-emerald-500 bg-emerald-50/30' : 'border-transparent hover:bg-gray-50'}`}>
-                                <input type="radio" name="paymentMethod" value={`custom_admin_${pm.idx}`} checked={selectedPaymentMethod === `custom_admin_${pm.idx}`} onChange={() => setSelectedPaymentMethod(`custom_admin_${pm.idx}`)} className="hidden" />
-                                <div className="w-12 h-10 bg-white border border-gray-100 shadow-sm rounded-lg flex items-center justify-center mr-3 p-1.5 relative overflow-hidden shrink-0">
-                                  {logo ? (
-                                    <img src={logo} alt="Logo" className="max-w-full max-h-full object-contain" />
-                                  ) : (
-                                    <span className="font-extrabold text-slate-300 text-[9px]">BANK</span>
-                                  )}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <p className="font-extrabold text-sm text-gray-800 truncate">
-                                    {(pm.bankName || 'Bank Transfer') + (title === "Transfer Manual" ? " (Transfer Manual)" : "")}
-                                  </p>
-                                </div>
-                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ml-3 ${selectedPaymentMethod === `custom_admin_${pm.idx}` ? 'border-emerald-500' : 'border-gray-300'}`}>
-                                  {selectedPaymentMethod === `custom_admin_${pm.idx}` && <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full"></div>}
-                                </div>
-                              </label>
+                              <div key={i} className="w-10 h-6 border border-gray-200 rounded flex items-center justify-center p-1 bg-white">
+                                {logo ? <img src={logo} className="max-w-full max-h-full object-contain" /> : <span className="text-[6px] font-bold text-gray-400">BANK</span>}
+                              </div>
                             );
                           })}
+                          {extraCount > 0 && (
+                            <div className="w-8 h-6 border border-gray-200 rounded flex items-center justify-center bg-white">
+                              <span className="text-[10px] font-medium text-gray-600">+{extraCount}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+
+                      {/* Sub-items (Dropdown UI) */}
+                      {isExpanded && !(title === 'QR Code' && items.length === 1) && (
+                        <div className="px-4 pb-4 pt-1 bg-white">
+                          <div className="relative">
+                            <div
+                              className="w-full bg-white border border-gray-200 hover:border-blue-500 rounded-lg p-3 flex justify-between items-center cursor-pointer shadow-sm transition-colors"
+                              onClick={() => setOpenDropdownGroup(openDropdownGroup === title ? null : title)}
+                            >
+                              <span className={selectedPaymentMethod && items.some(pm => pm.key === selectedPaymentMethod) ? 'text-gray-800 font-bold text-sm' : 'text-gray-400 text-sm'}>
+                                {selectedPaymentMethod && items.some(pm => pm.key === selectedPaymentMethod)
+                                  ? items.find(pm => pm.key === selectedPaymentMethod)?.bankName
+                                  : `Select ${title}`}
+                              </span>
+                              {openDropdownGroup === title ? <ChevronUp className="w-5 h-5 text-gray-400" /> : <ChevronDown className="w-5 h-5 text-gray-400" />}
+                            </div>
+
+                            {openDropdownGroup === title && (
+                              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10 max-h-60 overflow-y-auto">
+                                <div className="p-3 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white">
+                                  <div className="flex items-center text-gray-400 w-full mr-2">
+                                    <Search className="w-4 h-4 mr-2 shrink-0" />
+                                    <input
+                                      type="text"
+                                      placeholder="Cari bank..."
+                                      className="text-xs font-medium w-full focus:outline-none text-gray-700 bg-transparent placeholder-gray-400"
+                                      value={searchBankQuery}
+                                      onChange={(e) => setSearchBankQuery(e.target.value)}
+                                      onClick={(e) => e.stopPropagation()}
+                                    />
+                                  </div>
+                                  <button onClick={(e) => { e.stopPropagation(); setOpenDropdownGroup(null); setSearchBankQuery(''); }}>
+                                    <X className="w-4 h-4 text-gray-400 hover:text-gray-600 cursor-pointer" />
+                                  </button>
+                                </div>
+                                <div className="py-1">
+                                  {items.filter(pm => (pm.bankName || '').toLowerCase().includes(searchBankQuery.toLowerCase())).map((pm) => {
+                                    const n = (pm.bankName || '').toLowerCase();
+                                    let logo = null;
+
+                                    // 1. Coba ambil logo dari database
+                                    if (dbPaymentMethods && dbPaymentMethods.length > 0) {
+                                      const matched = dbPaymentMethods.find((dbpm: any) => {
+                                        const dbName = (dbpm.name || '').toLowerCase();
+                                        const dbCode = (dbpm.code || '').toLowerCase();
+                                        return n === dbName || n.includes(dbName.replace(' virtual account', '')) || n.includes(dbCode.replace('_va', ''));
+                                      });
+                                      if (matched && matched.logo_url) {
+                                        logo = matched.logo_url;
+                                      }
+                                    }
+
+                                    // 2. Fallback jika tidak ada di database
+                                    if (!logo) {
+                                      if (n.includes('bca')) logo = 'https://upload.wikimedia.org/wikipedia/commons/5/5c/Bank_Central_Asia.svg';
+                                      else if (n.includes('bri')) logo = 'https://upload.wikimedia.org/wikipedia/commons/2/2e/BRI_2020.svg';
+                                      else if (n.includes('dana')) logo = 'https://upload.wikimedia.org/wikipedia/commons/7/72/Logo_dana_blue.svg';
+                                      else if (n.includes('mandiri')) logo = 'https://upload.wikimedia.org/wikipedia/commons/a/ad/Bank_Mandiri_logo_2016.svg';
+                                      else if (n.includes('bni')) logo = 'https://upload.wikimedia.org/wikipedia/id/5/55/BNI_logo.svg';
+                                      else if (n.includes('ovo')) logo = 'https://branditechture.agency/brand-logos/wp-content/uploads/wpdm-cache/OVO-900x0.png';
+                                      else if (n.includes('gopay')) logo = 'https://upload.wikimedia.org/wikipedia/commons/8/86/Gopay_logo.svg';
+                                      else if (n.includes('shopee')) logo = 'https://upload.wikimedia.org/wikipedia/commons/f/fe/Shopee.svg';
+                                      else if (n.includes('bsi')) logo = 'https://upload.wikimedia.org/wikipedia/commons/a/a0/Bank_Syariah_Indonesia.svg';
+                                      else if (n.includes('qris')) logo = 'https://upload.wikimedia.org/wikipedia/commons/a/a2/Logo_QRIS.svg';
+                                    }
+
+                                    return (
+                                      <div
+                                        key={pm.key}
+                                        className={`flex items-center px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors ${selectedPaymentMethod === pm.key ? 'bg-blue-50/30' : ''}`}
+                                        onClick={() => {
+                                          setSelectedPaymentMethod(pm.key);
+                                          setInstructionTab(0);
+                                          setOpenDropdownGroup(null);
+                                        }}
+                                      >
+                                        <div className="w-10 h-7 bg-white border border-gray-100 shadow-sm rounded flex items-center justify-center mr-3 p-1 shrink-0">
+                                          {logo ? (
+                                            <img src={logo} alt="Logo" className="max-w-full max-h-full object-contain" />
+                                          ) : (
+                                            <span className="font-extrabold text-slate-300 text-[7px]">BANK</span>
+                                          )}
+                                        </div>
+                                        <span className="font-bold text-gray-700 text-sm">{pm.bankName}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1289,11 +1720,11 @@ export default function App() {
                 };
 
                 return (
-                  <>
-                    {renderGroup("Transfer Manual", <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path></svg>, vaMethods)}
-                    {renderGroup("E-Wallet", <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>, ewalletMethods)}
-                    {renderGroup("Lainnya", <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>, otherMethods)}
-                  </>
+                  <div className="border border-gray-200 rounded-2xl bg-white shadow-sm">
+                    {renderGroup("Bank Transfer", vaMethods)}
+                    {renderGroup("E-Wallet", ewalletMethods)}
+                    {renderGroup("QR Code", qrisMethods)}
+                  </div>
                 );
               })()}
             </div>
@@ -1326,13 +1757,28 @@ export default function App() {
         {/* Header - Back button returns to Method Selection */}
         <div className="flex items-center justify-between mb-4 sm:mb-6 bg-white p-3 sm:p-4 rounded-2xl border border-gray-100 shadow-sm gap-2">
           <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
-            <button onClick={() => setCheckoutStep('select_method')} className="p-2 bg-slate-50 hover:bg-slate-100 rounded-full border border-gray-200 text-gray-600 transition-colors flex-shrink-0">
+            <button
+              onClick={() => {
+                if (!uploadedReceipt) {
+                  showToast('Anda harus upload bukti pembayaran dulu!', 'error');
+                } else {
+                  setCheckoutStep('select_method');
+                }
+              }}
+              className="p-2 bg-slate-50 hover:bg-slate-100 rounded-full border border-gray-200 text-gray-600 transition-colors flex-shrink-0"
+            >
               <ArrowLeft className="w-4 h-4 sm:w-5 h-5" />
             </button>
-            <h1 className="text-sm sm:text-xl font-extrabold text-gray-900 truncate">Selesaikan Pembayaran</h1>
+            <div className="flex flex-col">
+              <h1 className="text-sm sm:text-xl font-extrabold text-gray-900 truncate">Selesaikan Pembayaran</h1>
+              <div className="flex items-center text-[10px] sm:text-xs text-amber-600 mt-0.5 font-semibold">
+                <AlertTriangle className="w-3 h-3 mr-1 flex-shrink-0" />
+                <span className="truncate">Batas waktu <span className="font-extrabold">5 jam</span> (Pukul {createdBooking?.created_at ? new Date(new Date(createdBooking.created_at).getTime() + 5 * 60 * 60 * 1000).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }).replace(/\./g, ':') : new Date(new Date().getTime() + 5 * 60 * 60 * 1000).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }).replace(/\./g, ':')} WIB)</span>
+              </div>
+            </div>
           </div>
           <span className="bg-amber-50 text-amber-600 border border-amber-200 px-2.5 py-1 rounded-full text-[10px] sm:text-xs font-bold inline-flex items-center gap-1 sm:gap-1.5 shadow-sm flex-shrink-0">
-            <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 animate-spin" /> Menunggu
+            <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 animate-spin" />
           </span>
         </div>
 
@@ -1342,54 +1788,171 @@ export default function App() {
           {/* Main Payment Details - Green / Emerald themed */}
           <div className="bg-white rounded-3xl shadow-sm p-4 sm:p-6 border border-gray-100 flex flex-col items-center self-start">
 
-            {/* Bank Header Box */}
-            <div className="flex items-center gap-2 mb-3 self-start w-full border-b border-gray-50 pb-2">
-              <div className="bg-emerald-50 border border-emerald-100 rounded-lg px-2.5 py-1 text-emerald-700 font-extrabold text-[10px] sm:text-xs">
-                {currentAccount.badge}
+            {/* Account Card Details - Single Box Layout */}
+            <div className="w-full flex flex-col items-center relative mb-5">
+              <div className="flex items-center justify-center gap-3 mb-5 w-full">
+                <div className="text-center flex items-center justify-center gap-3">
+                  {(() => {
+                    const type = createdBooking?.xendit?.payment_method?.type;
+                    const channelCode = createdBooking?.xendit?.payment_method?.virtual_account?.channel_code || createdBooking?.xendit?.payment_method?.ewallet?.channel_code;
+
+                    let n = '';
+                    if (type === 'QR_CODE') n = 'qris';
+                    else if (channelCode) n = channelCode.toLowerCase();
+
+                    let logo = null;
+                    if (dbPaymentMethods && dbPaymentMethods.length > 0) {
+                      const matched = dbPaymentMethods.find((dbpm: any) => {
+                        const dbName = (dbpm.name || '').toLowerCase();
+                        const dbCode = (dbpm.code || '').toLowerCase();
+                        return n === dbName || n.includes(dbName.replace(' virtual account', '')) || n.includes(dbCode.replace('_va', ''));
+                      });
+                      if (matched && matched.logo_url) logo = matched.logo_url;
+                    }
+                    if (!logo) {
+                      if (n.includes('bca')) logo = 'https://upload.wikimedia.org/wikipedia/commons/5/5c/Bank_Central_Asia.svg';
+                      else if (n.includes('bri')) logo = 'https://upload.wikimedia.org/wikipedia/commons/2/2e/BRI_2020.svg';
+                      else if (n.includes('dana')) logo = 'https://upload.wikimedia.org/wikipedia/commons/7/72/Logo_dana_blue.svg';
+                      else if (n.includes('mandiri')) logo = 'https://upload.wikimedia.org/wikipedia/commons/a/ad/Bank_Mandiri_logo_2016.svg';
+                      else if (n.includes('bni')) logo = 'https://upload.wikimedia.org/wikipedia/id/5/55/BNI_logo.svg';
+                      else if (n.includes('ovo')) logo = 'https://branditechture.agency/brand-logos/wp-content/uploads/wpdm-cache/OVO-900x0.png';
+                      else if (n.includes('gopay')) logo = 'https://upload.wikimedia.org/wikipedia/commons/8/86/Gopay_logo.svg';
+                      else if (n.includes('shopee')) logo = 'https://upload.wikimedia.org/wikipedia/commons/f/fe/Shopee.svg';
+                      else if (n.includes('bsi')) logo = 'https://upload.wikimedia.org/wikipedia/commons/a/a0/Bank_Syariah_Indonesia.svg';
+                      else if (n.includes('qris')) logo = 'https://upload.wikimedia.org/wikipedia/commons/a/a2/Logo_QRIS.svg';
+                    }
+
+                    return logo ? (
+                      <div className="h-8 bg-white flex items-center justify-center p-1 shrink-0">
+                        <img src={logo} alt="Bank Logo" className="max-w-full max-h-full object-contain" />
+                      </div>
+                    ) : null;
+                  })()}
+                  <span className="block text-base sm:text-lg text-emerald-600 font-extrabold tracking-wider uppercase leading-none">
+                    {createdBooking?.xendit?.payment_method?.type?.replace('_', ' ')}
+                    {createdBooking?.xendit?.payment_method?.virtual_account?.channel_code && ` - ${createdBooking.xendit.payment_method.virtual_account.channel_code}`}
+                    {createdBooking?.xendit?.payment_method?.ewallet?.channel_code && ` - ${createdBooking.xendit.payment_method.ewallet.channel_code}`}
+                  </span>
+                </div>
               </div>
-              <p className="font-extrabold text-gray-800 text-sm sm:text-base">TRANSFER VIA {currentAccount.title}</p>
+
+              {createdBooking?.xendit?.payment_method?.type === 'QR_CODE' && (
+                <div className="w-full border-2 border-emerald-100 bg-emerald-50/20 rounded-2xl p-4 flex flex-col items-center">
+                  <div className="w-full flex items-center justify-between bg-white border border-emerald-100 rounded-xl py-3 px-4 shadow-sm mb-4">
+                    <div className="flex-1 flex justify-between items-center">
+                      <div>
+                        <p className="text-[10px] sm:text-xs text-gray-400 font-extrabold tracking-wider uppercase mb-0.5">Nominal Yang Harus Dibayar</p>
+                        <span className="text-lg sm:text-xl font-extrabold text-emerald-600">Rp {Number(createdBooking.total_price).toLocaleString('id-ID')}</span>
+                      </div>
+                      <button onClick={() => handleCopy(createdBooking.total_price.toString(), 'nominal')} className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-bold transition-all active:scale-95 flex-shrink-0 ${copiedNominal ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}>
+                        {copiedNominal ? <CheckCircle2 className="w-3.5 h-3.5" /> : <FileText className="w-3.5 h-3.5" />}
+                        {copiedNominal ? 'Tersalin' : 'Salin'}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="w-full bg-white border border-emerald-100 rounded-xl p-6 shadow-sm mb-4 flex items-center justify-center">
+                    <QRCode value={createdBooking.xendit.payment_method.qr_code.channel_properties.qr_string} size={220} />
+                  </div>
+                  <p className="text-xs text-gray-500 font-bold text-center bg-white py-2 px-4 rounded-xl border border-gray-100">Scan QR Code di atas menggunakan aplikasi E-Wallet atau M-Banking Anda.</p>
+                </div>
+              )}
+
+              {createdBooking?.xendit?.payment_method?.type === 'EWALLET' && (
+                <div className="w-full border-2 border-emerald-100 bg-emerald-50/20 rounded-2xl p-4 flex flex-col items-center">
+                  <div className="w-full flex items-center justify-between bg-white border border-emerald-100 rounded-xl py-3 px-4 shadow-sm mb-6">
+                    <div className="flex-1 flex justify-between items-center">
+                      <div>
+                        <p className="text-[10px] sm:text-xs text-gray-400 font-extrabold tracking-wider uppercase mb-0.5">Nominal Yang Harus Dibayar</p>
+                        <span className="text-lg sm:text-xl font-extrabold text-emerald-600">Rp {Number(createdBooking.total_price).toLocaleString('id-ID')}</span>
+                      </div>
+                      <button onClick={() => handleCopy(createdBooking.total_price.toString(), 'nominal')} className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-bold transition-all active:scale-95 flex-shrink-0 ${copiedNominal ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}>
+                        {copiedNominal ? <CheckCircle2 className="w-3.5 h-3.5" /> : <FileText className="w-3.5 h-3.5" />}
+                        {copiedNominal ? 'Tersalin' : 'Salin'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {(() => {
+                    const xenditData = createdBooking.xendit || {};
+                    const actions = xenditData.actions || xenditData.payment_method?.ewallet?.channel_properties?.actions || [];
+                    const redirectAction = actions.find((a: any) => a.action === 'MOBILE_DEEPLINK_CHECKOUT_URL' || a.action === 'MOBILE_WEB_CHECKOUT_URL' || a.action === 'DESKTOP_WEB_CHECKOUT_URL' || a.action === 'BROWSER_CHECKOUT_URL' || a.url_type === 'DEEPLINK' || a.url_type === 'WEB');
+                    const qrAction = actions.find((a: any) => a.action === 'QR_CHECKOUT_STRING' || a.url_type === 'QR_CODE');
+
+                    const ewalletProps = xenditData.payment_method?.ewallet?.channel_properties || {};
+                    const directQrStr = ewalletProps.qr_checkout_string;
+                    const directRedirect = ewalletProps.mobile_deeplink_checkout_url || ewalletProps.desktop_web_checkout_url;
+
+                    const finalQrVal = qrAction?.url || qrAction?.qr_code || directQrStr || redirectAction?.url || directRedirect;
+                    const finalRedirectUrl = redirectAction?.url || directRedirect;
+
+                    const ewalletChannel = xenditData.payment_method?.ewallet?.channel_code;
+                    const isOvo = ewalletChannel === 'OVO';
+
+                    return (
+                      <div className="w-full flex flex-col items-center">
+                        {isOvo ? (
+                          <div className="w-full bg-white border border-emerald-100 rounded-xl p-6 shadow-sm mb-4 flex flex-col items-center text-center">
+                            <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mb-3">
+                              <span className="text-purple-600 font-extrabold text-xl">OVO</span>
+                            </div>
+                            <h4 className="font-extrabold text-gray-800 mb-2">Cek Aplikasi OVO Anda</h4>
+                            <p className="text-xs text-gray-500 font-medium">Kami telah mengirimkan notifikasi pembayaran ke aplikasi OVO yang terhubung dengan nomor telepon Anda. Silakan buka aplikasi OVO untuk menyelesaikan pembayaran.</p>
+                          </div>
+                        ) : finalQrVal ? (
+                          <>
+                            <div className="w-full bg-white border border-emerald-100 rounded-xl p-6 shadow-sm mb-4 flex items-center justify-center">
+                              <QRCode value={finalQrVal} size={220} />
+                            </div>
+                            <p className="text-xs text-gray-500 font-bold text-center bg-white py-2 px-4 rounded-xl border border-gray-100 mb-4 w-full">Scan QR Code di atas menggunakan aplikasi E-Wallet Anda atau kamera HP.</p>
+                          </>
+                        ) : null}
+
+                        {finalRedirectUrl && !isOvo && (
+                          <button
+                            onClick={() => window.open(finalRedirectUrl, '_blank')}
+                            className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold py-4 rounded-xl transition-all shadow-md active:scale-95 flex items-center justify-center text-sm"
+                          >
+                            Buka Aplikasi
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {createdBooking?.xendit?.payment_method?.type === 'VIRTUAL_ACCOUNT' && (
+                <div className="w-full border-2 border-emerald-100 bg-emerald-50/20 rounded-2xl p-3 sm:p-4 flex flex-col gap-3">
+                  <div className="w-full flex items-center justify-between bg-white border border-emerald-100 rounded-xl py-3 px-3 sm:px-4 shadow-sm">
+                    <div className="flex flex-col">
+                      <p className="text-[9px] sm:text-[10px] text-gray-400 font-extrabold tracking-wider uppercase mb-0.5">Nominal Transfer</p>
+                      <span className="text-sm sm:text-lg font-extrabold text-emerald-600">Rp {Number(createdBooking.total_price).toLocaleString('id-ID')}</span>
+                    </div>
+                    <button
+                      onClick={() => handleCopy(createdBooking.total_price.toString(), 'nominal')}
+                      className={`flex items-center justify-center gap-1 px-2.5 py-2 sm:px-4 sm:py-2 rounded-xl font-extrabold text-[9px] sm:text-xs transition-all active:scale-95 shadow-sm border border-transparent flex-shrink-0 ${copiedNominal ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 cursor-pointer'}`}
+                    >
+                      {copiedNominal ? <CheckCircle2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> : <FileText className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
+                      {copiedNominal ? 'Tersalin' : 'Salin'}
+                    </button>
+                  </div>
+
+                  <div className="w-full flex items-center justify-between bg-white border border-emerald-100 rounded-xl py-3 px-3 sm:px-4 shadow-sm">
+                    <div className="flex flex-col min-w-0 mr-2">
+                      <p className="text-[9px] sm:text-[10px] text-gray-400 font-extrabold tracking-wider uppercase mb-0.5">Nomor Virtual Account</p>
+                      <span className="font-mono text-sm sm:text-lg font-extrabold tracking-widest text-emerald-600 truncate">{createdBooking.xendit.payment_method.virtual_account.channel_properties.virtual_account_number}</span>
+                    </div>
+                    <button
+                      onClick={() => handleCopy(createdBooking.xendit.payment_method.virtual_account.channel_properties.virtual_account_number, 'va')}
+                      className={`flex items-center justify-center gap-1 px-2.5 py-2 sm:px-4 sm:py-2 rounded-xl font-extrabold text-[9px] sm:text-xs transition-all active:scale-95 shadow-sm border border-transparent flex-shrink-0 ${copiedBCA ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'}`}
+                    >
+                      {copiedBCA ? <CheckCircle2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> : <FileText className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
+                      {copiedBCA ? 'Tersalin' : 'Salin'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-
-            {/* Nominal yang harus dibayar Box */}
-            <div className="w-full mb-3 text-center border-2 border-dashed bg-emerald-50/10 border-emerald-100 p-3 sm:p-4 rounded-2xl">
-              <p className="text-[10px] sm:text-xs text-gray-400 font-extrabold tracking-wider uppercase mb-0.5">Nominal Yang Harus Dibayar</p>
-              <p className="text-2xl sm:text-3xl font-extrabold text-emerald-600">
-                Rp {finalTotal.toLocaleString('id-ID')}
-              </p>
-            </div>
-
-            <p className="text-xs font-bold text-slate-500 mb-1.5 self-start">Transfer ke rekening berikut:</p>
-
-            {/* Account Card Details - Emerald Green themed */}
-            <div className="w-full border-2 border-emerald-100 bg-emerald-50/20 rounded-2xl p-3 sm:p-4 text-center flex flex-col items-center relative mb-3">
-              <span className="text-[9px] sm:text-[20px] text-emerald-600 font-extrabold tracking-widest uppercase mb-1">{currentAccount.badge} ({currentAccount.methodType || 'TRANSFER MANUAL'})</span>
-              <span className="text-sm sm:text-base font-extrabold text-slate-800 mb-2">{currentAccount.name}</span>
-
-              <div className="w-full bg-white border border-emerald-100 rounded-xl py-2 px-3 sm:py-3 sm:px-4 font-mono text-lg sm:text-xl font-extrabold tracking-widest text-emerald-600 shadow-inner mb-3 flex items-center justify-center">
-                {currentAccount.number}
-              </div>
-
-              <div className="flex gap-2 w-full">
-                <button
-                  onClick={() => handleCopy(currentAccount.number, 'bca')}
-                  className={`flex-grow flex items-center justify-center gap-1 px-1.5 py-2.5 sm:px-3 sm:py-2.5 rounded-xl font-extrabold text-[10px] sm:text-xs transition-all active:scale-95 shadow-sm border border-transparent whitespace-nowrap ${copiedBCA ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'
-                    }`}
-                >
-                  {copiedBCA ? <CheckCircle2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> : <FileText className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
-                  {copiedBCA ? 'Tersalin' : 'Salin Rekening'}
-                </button>
-                <button
-                  onClick={() => handleCopy(finalTotal.toString(), 'nominal')}
-                  className={`flex-grow flex items-center justify-center gap-1 px-1.5 py-2.5 sm:px-3 sm:py-2.5 rounded-xl font-extrabold text-[10px] sm:text-xs transition-all active:scale-95 border whitespace-nowrap ${copiedNominal ? 'bg-emerald-100 text-emerald-700 border-transparent' : 'bg-white hover:bg-emerald-50/30 text-emerald-700 border-emerald-200 shadow-sm cursor-pointer'
-                    }`}
-                >
-                  {copiedNominal ? <CheckCircle2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> : <FileText className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
-                  {copiedNominal ? 'Tersalin' : 'Salin Nominal'}
-                </button>
-              </div>
-            </div>
-
-
 
             {/* Konfirmasi Pembayaran Section */}
             <div className="w-full border-t border-gray-100 pt-4">
@@ -1432,15 +1995,6 @@ export default function App() {
                   </div>
                 )}
               </div>
-
-              {/* Warning Notice Box */}
-              <div className="mt-3 bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2 text-amber-800">
-                <AlertTriangle className="w-4 h-4 mt-0.5 text-amber-600 flex-shrink-0" />
-                <p className="text-xs font-semibold leading-relaxed">
-                  Lakukan pembayaran sebelum <span className="font-extrabold text-amber-700">24 jam</span> untuk menghindari pembatalan otomatis. ID: <span className="font-mono text-amber-900 font-bold">ORD-{selectedField.id}-{bookingDate.replace(/-/g, '')}-{startHour}</span>
-                </p>
-              </div>
-
             </div>
           </div>
 
@@ -1451,36 +2005,64 @@ export default function App() {
                 <FileText className="w-4.5 h-4.5 text-emerald-600" /> Instruksi Pembayaran
               </h2>
 
-              <div className="border border-emerald-100 bg-emerald-50/10 rounded-2xl p-4 sm:p-5">
-                <span className="text-xs font-extrabold text-emerald-700 block mb-3">{currentAccount.instructionTitle}</span>
-                <ol className="space-y-3.5 text-xs text-gray-600 font-bold list-decimal pl-4 leading-relaxed">
-                  {currentAccount.instructions.map((ins, i) => {
-                    if (ins.includes('Atas Nama:')) {
-                      const parts = ins.split(': ');
-                      return (
-                        <li key={i}>
-                          {parts[0]}: <span className="font-bold text-slate-800">{parts.slice(1).join(': ')}</span>
-                        </li>
-                      );
-                    }
-                    if (ins.includes(': ') && !ins.includes('WhatsApp')) {
-                      const parts = ins.split(': ');
-                      return (
-                        <li key={i}>
-                          {parts[0]}: <span className="font-bold text-slate-800 font-mono">{parts.slice(1).join(': ')}</span>
-                        </li>
-                      );
-                    }
-                    if (ins.includes('nominal')) {
-                      return (
-                        <li key={i}>
-                          Transfer sesuai nominal <span className="text-emerald-600 font-extrabold">(hingga 3 digit terakhir)</span> ke rekening berikut:
-                        </li>
-                      );
-                    }
-                    return <li key={i}>{ins}</li>;
-                  })}
-                </ol>
+              <div className="border border-gray-200 bg-white rounded-2xl overflow-hidden">
+                <div className="px-4 pt-4 border-b border-gray-100 flex flex-wrap gap-2">
+                  {currentAccount?.dbInstructions && currentAccount.dbInstructions.length > 0 ? (
+                    currentAccount.dbInstructions.map((inst: any, idx: number) => (
+                      <button
+                        key={idx}
+                        onClick={() => setInstructionTab(idx)}
+                        className={`px-3 py-2 text-xs font-bold transition-colors border-b-2 ${instructionTab === idx ? 'text-emerald-600 border-emerald-600' : 'text-gray-500 border-transparent hover:text-gray-700'}`}
+                      >
+                        {inst.title.replace('Pembayaran via ', '')}
+                      </button>
+                    ))
+                  ) : (
+                    <button className="px-3 py-2 text-xs font-bold text-emerald-600 border-b-2 border-emerald-600">Panduan Pembayaran</button>
+                  )}
+                </div>
+
+                <div className="p-4 sm:p-5">
+                  {currentAccount?.dbInstructions && currentAccount.dbInstructions.length > 0 ? (
+                    <div dangerouslySetInnerHTML={{
+                      __html: (currentAccount.dbInstructions[instructionTab]?.content || '')
+                        .replace(/contoh:\s*\d+/gi, createdBooking?.xendit?.payment_method?.virtual_account?.channel_properties?.virtual_account_number ? `contoh: <span class="font-mono font-extrabold text-emerald-600">${createdBooking.xendit.payment_method.virtual_account.channel_properties.virtual_account_number}</span>` : '$&')
+                        .replace(/<ol>/g, '<ol class="list-decimal pl-5 space-y-3 text-[13px] sm:text-sm text-gray-700 font-medium leading-relaxed">')
+                        .replace(/<ul>/g, '<ul class="list-disc pl-5 space-y-3 text-[13px] sm:text-sm text-gray-700 font-medium leading-relaxed">')
+                        .replace(/<li>/g, '<li class="pl-1">')
+                        .replace(/<strong>/g, '<strong class="font-extrabold text-gray-900">')
+                    }} />
+                  ) : (
+                    <ol className="space-y-3.5 text-xs text-gray-600 font-bold list-decimal pl-4 leading-relaxed">
+                      {currentAccount?.instructions?.map((ins: any, i: number) => {
+                        if (ins.includes('Atas Nama:')) {
+                          const parts = ins.split(': ');
+                          return (
+                            <li key={i}>
+                              {parts[0]}: <span className="font-bold text-slate-800">{parts.slice(1).join(': ')}</span>
+                            </li>
+                          );
+                        }
+                        if (ins.includes(': ') && !ins.includes('WhatsApp')) {
+                          const parts = ins.split(': ');
+                          return (
+                            <li key={i}>
+                              {parts[0]}: <span className="font-bold text-slate-800 font-mono">{parts.slice(1).join(': ')}</span>
+                            </li>
+                          );
+                        }
+                        if (ins.includes('nominal')) {
+                          return (
+                            <li key={i}>
+                              Transfer sesuai nominal <span className="text-blue-600 font-extrabold">(hingga 3 digit terakhir)</span> ke rekening berikut:
+                            </li>
+                          );
+                        }
+                        return <li key={i}>{ins}</li>;
+                      })}
+                    </ol>
+                  )}
+                </div>
               </div>
 
               {/* Kirim Bukti Pembayaran Button */}
@@ -1507,7 +2089,13 @@ export default function App() {
 
               {/* Kembali ke Beranda Button */}
               <button
-                onClick={() => setCurrentView('home')}
+                onClick={() => {
+                  if (!uploadedReceipt) {
+                    showToast('Anda harus upload bukti pembayaran dulu!', 'error');
+                  } else {
+                    setCurrentView('home');
+                  }
+                }}
                 className="w-full mt-3 bg-slate-50 hover:bg-slate-100 text-slate-600 font-bold py-3.5 rounded-xl text-sm transition-colors border border-slate-200 cursor-pointer"
               >
                 Kembali ke Beranda
@@ -1561,7 +2149,7 @@ export default function App() {
   );
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] font-sans flex flex-col selection:bg-emerald-200 flex-grow">
+    <div className="min-h-screen bg-[#f8fafc] font-sans flex flex-col selection:bg-emerald-200 flex-grow" style={{ overflowX: 'hidden', maxWidth: '100vw' }}>
       <style dangerouslySetInnerHTML={{
         __html: `
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
@@ -1570,6 +2158,8 @@ export default function App() {
         .animate-scale-up { animation: scaleUp 0.15s ease-out forwards; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        * { box-sizing: border-box; }
+        html, body, #__next { overflow-x: hidden !important; max-width: 100vw !important; }
         .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
         button:not(:disabled) { cursor: pointer !important; }
         button:disabled { cursor: not-allowed !important; }
@@ -1604,6 +2194,133 @@ export default function App() {
               </button>
               <button onClick={() => confirmCancel(confirmCancelId)} className="flex-1 py-3 rounded-xl font-bold text-white bg-red-600 hover:bg-red-700 transition-colors shadow-md shadow-red-600/20">
                 Ya, Batalkan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Payment Info Popup */}
+      {paymentPopup.isOpen && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', padding: '12px', boxSizing: 'border-box' }} className="animate-fade-in">
+          <div style={{ backgroundColor: 'white', borderRadius: '24px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', border: '1px solid #f3f4f6', display: 'flex', flexDirection: 'column', width: '100%', maxWidth: '360px', maxHeight: '90vh', overflow: 'hidden', boxSizing: 'border-box' }} className="animate-scale-up">
+
+            {/* Scrollable Content */}
+            <div style={{ overflowY: 'auto', overflowX: 'hidden', flex: 1, padding: '20px 16px 16px', boxSizing: 'border-box', wordBreak: 'break-word' }}>
+              {/* Icon */}
+              <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-3">
+                {paymentPopup.type === 'qris' && <QrCode className="w-6 h-6" />}
+                {paymentPopup.type === 'url' && <Wallet className="w-6 h-6" />}
+                {paymentPopup.type === 'va' && <CreditCard className="w-6 h-6" />}
+              </div>
+
+              <h3 className="text-sm font-extrabold text-gray-900 mb-0.5 leading-tight text-center break-words">{paymentPopup.title}</h3>
+              <p className="text-[11px] text-gray-400 mb-4 text-center">Metode Pembayaran Otomatis</p>
+
+              {/* Detail Pesanan */}
+              {paymentPopup.booking && (
+                <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100 text-xs space-y-2 mb-4 text-left w-full">
+                  <p className="text-gray-500 font-bold pb-1.5 border-b border-gray-200 text-[10px] uppercase tracking-wider">Detail Pesanan</p>
+                  <div className="flex justify-between items-start gap-2">
+                    <span className="text-gray-400 font-medium shrink-0">Lapangan</span>
+                    <span className="text-gray-900 font-extrabold text-right break-words min-w-0">{paymentPopup.booking.fieldName}</span>
+                  </div>
+                  <div className="flex justify-between items-start gap-2">
+                    <span className="text-gray-400 font-medium shrink-0">Tanggal</span>
+                    <span className="text-gray-900 font-bold text-right break-words min-w-0">{paymentPopup.booking.date}</span>
+                  </div>
+                  <div className="flex justify-between items-center gap-2">
+                    <span className="text-gray-400 font-medium shrink-0">Jam</span>
+                    <span className="text-gray-900 font-bold text-right">{paymentPopup.booking.time}</span>
+                  </div>
+                  <div className="flex justify-between items-center gap-2 pt-2 border-t border-slate-200">
+                    <span className="text-gray-900 font-extrabold shrink-0">Total</span>
+                    <span className="text-emerald-600 font-black text-sm">Rp {paymentPopup.booking.price.toLocaleString('id-ID')}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* QR / VA Section */}
+              {(paymentPopup.type === 'qris' || paymentPopup.type === 'url') ? (
+                <div className="flex flex-col items-center w-full">
+                  <p className="text-[10px] text-gray-400 mb-3 leading-relaxed text-center">
+                    Scan QRIS ini di aplikasi E-Wallet (GOPAY, OVO, DANA, LinkAja) atau m-Banking.
+                  </p>
+                  <div style={{ backgroundColor: 'white', padding: '12px', border: '2px solid #f1f5f9', borderRadius: '16px', marginBottom: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', boxSizing: 'border-box' }}>
+                    <QRCode value={paymentPopup.value} style={{ width: '100%', maxWidth: '160px', height: 'auto' }} id="qris-canvas" />
+                  </div>
+                  <div className="flex flex-col gap-2 w-full">
+                    <button
+                      onClick={() => {
+                        const svg = document.getElementById('qris-canvas');
+                        if (svg) {
+                          const svgData = new XMLSerializer().serializeToString(svg);
+                          const canvas = document.createElement('canvas');
+                          const ctx = canvas.getContext('2d');
+                          const img = new Image();
+                          img.onload = () => {
+                            canvas.width = img.width;
+                            canvas.height = img.height;
+                            ctx?.drawImage(img, 0, 0);
+                            const pngFile = canvas.toDataURL('image/png');
+                            const downloadLink = document.createElement('a');
+                            downloadLink.download = `QRIS-${paymentPopup.booking?.bookingCode || 'PAYMENT'}.png`;
+                            downloadLink.href = pngFile;
+                            downloadLink.click();
+                            showToast('Barcode QRIS berhasil diunduh');
+                          };
+                          img.src = 'data:image/svg+xml;base64,' + btoa(svgData);
+                        }
+                      }}
+                      className="inline-flex items-center justify-center w-full py-2.5 bg-slate-100 text-slate-700 rounded-xl font-extrabold text-xs hover:bg-slate-200 transition-colors active:scale-95"
+                    >
+                      <Download className="w-3.5 h-3.5 mr-1.5" /> Unduh Barcode
+                    </button>
+                    {paymentPopup.type === 'url' ? (
+                      <a
+                        href={paymentPopup.value}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center justify-center w-full py-2.5 bg-emerald-600 text-white rounded-xl font-extrabold text-xs shadow-md hover:bg-emerald-700 transition-colors active:scale-95"
+                      >
+                        <Wallet className="w-3.5 h-3.5 mr-1.5" /> Buka Aplikasi E-Wallet
+                      </a>
+                    ) : (
+                      <button
+                        onClick={() => showToast('Silakan buka aplikasi E-Wallet dari HP Anda dan unggah QRIS yang baru diunduh.')}
+                        className="inline-flex items-center justify-center w-full py-2.5 bg-emerald-600 text-white rounded-xl font-extrabold text-xs shadow-md hover:bg-emerald-700 transition-colors active:scale-95"
+                      >
+                        <Wallet className="w-3.5 h-3.5 mr-1.5" /> Buka Aplikasi E-Wallet
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-emerald-50 rounded-2xl p-4 border border-emerald-100 text-center w-full">
+                  <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider mb-2">Nomor Virtual Account</p>
+                  <div className="flex items-center justify-center gap-2 mb-2 min-w-0">
+                    <p className="text-base font-black tracking-wider text-emerald-800 break-all min-w-0">{paymentPopup.value}</p>
+                    <button
+                      onClick={() => { navigator.clipboard.writeText(paymentPopup.value); showToast('Nomor VA disalin ke clipboard'); }}
+                      className="p-1.5 bg-white border border-emerald-100 rounded-lg hover:bg-emerald-50 active:scale-95 transition-all text-emerald-600 shrink-0"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-emerald-500 leading-relaxed">
+                    Pembayaran terdeteksi otomatis setelah transfer.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Fixed Bottom Button */}
+            <div className="px-5 py-3 border-t border-slate-100 bg-white shrink-0">
+              <button
+                onClick={() => setPaymentPopup({ isOpen: false, type: '', value: '', title: '', booking: null })}
+                className="w-full py-3 rounded-xl font-extrabold text-xs text-gray-500 bg-gray-50 hover:bg-gray-100 transition-colors border border-gray-200 active:scale-95"
+              >
+                Tutup Halaman
               </button>
             </div>
           </div>
