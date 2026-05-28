@@ -120,6 +120,10 @@ export default function App() {
   const [selectedStar, setSelectedStar] = useState(0);
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
   const [paymentPopup, setPaymentPopup] = useState<{ isOpen: boolean, type: string, value: string, title: string, booking: any }>({ isOpen: false, type: '', value: '', title: '', booking: null });
+  const [popupReceiptFile, setPopupReceiptFile] = useState<File | null>(null);
+  const [popupReceiptPreviewUrl, setPopupReceiptPreviewUrl] = useState('');
+  const [isSubmittingPopupReceipt, setIsSubmittingPopupReceipt] = useState(false);
+  const popupFileInputRef = useRef<HTMLInputElement>(null);
   const [myBookings, setMyBookings] = useState([]);
   const [myBookingsPage, setMyBookingsPage] = useState(1);
 
@@ -265,6 +269,49 @@ export default function App() {
       .catch(err => console.error("Error fetching payment methods", err));
   }, []);
 
+
+  const handleUploadPopupReceipt = async () => {
+    if (!popupReceiptFile || !paymentPopup.booking) {
+      showToast("Pilih file bukti pembayaran terlebih dahulu", "error");
+      return;
+    }
+
+    setIsSubmittingPopupReceipt(true);
+    try {
+      const ext = popupReceiptFile.name.split('.').pop();
+      const filename = `receipt-${paymentPopup.booking.bookingCode}-${Date.now()}.${ext}`;
+      const uploadRes = await fetch(`/api/upload?filename=${filename}`, {
+        method: 'POST',
+        body: popupReceiptFile,
+      });
+
+      if (!uploadRes.ok) throw new Error("Gagal upload file");
+      const uploadData = await uploadRes.json();
+      
+      const res = await fetch('/api/bookings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          id: paymentPopup.booking.id, 
+          receiptImg: uploadData.url, 
+          status: 'MENUNGGU' 
+        })
+      });
+      
+      if (!res.ok) throw new Error("Gagal update status");
+      
+      showToast("Bukti pembayaran berhasil dikirim", "success");
+      setPaymentPopup({ isOpen: false, type: '', value: '', title: '', booking: null });
+      setPopupReceiptFile(null);
+      setPopupReceiptPreviewUrl('');
+      fetchMyBookings();
+    } catch (err) {
+      console.error(err);
+      showToast("Gagal mengirim bukti pembayaran", "error");
+    } finally {
+      setIsSubmittingPopupReceipt(false);
+    }
+  };
 
   const fetchMyBookings = () => {
     if (user?.id) {
@@ -2312,6 +2359,54 @@ export default function App() {
                   </p>
                 </div>
               )}
+
+              {/* Upload Bukti Pembayaran */}
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <p className="text-xs font-bold text-gray-700 mb-2">Upload Bukti Pembayaran (Opsional)</p>
+                {!popupReceiptFile ? (
+                  <div 
+                    onClick={() => popupFileInputRef.current?.click()}
+                    className="border-2 border-dashed border-gray-300 rounded-xl p-4 text-center cursor-pointer hover:bg-gray-50 hover:border-emerald-500 transition-colors"
+                  >
+                    <Upload className="w-6 h-6 text-gray-400 mx-auto mb-2" />
+                    <p className="text-xs text-gray-500">Klik untuk unggah screenshot pembayaran</p>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <img src={popupReceiptPreviewUrl} alt="Bukti" className="w-full h-32 object-cover rounded-xl border border-gray-200" />
+                    <button 
+                      onClick={() => { setPopupReceiptFile(null); setPopupReceiptPreviewUrl(''); }}
+                      className="absolute top-2 right-2 bg-white rounded-full p-1 shadow-md text-red-500 hover:bg-red-50"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={handleUploadPopupReceipt}
+                      disabled={isSubmittingPopupReceipt}
+                      className="w-full mt-3 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-xs shadow-md hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                    >
+                      {isSubmittingPopupReceipt ? 'Mengirim...' : 'Kirim Bukti Pembayaran'}
+                    </button>
+                  </div>
+                )}
+                <input 
+                  type="file" 
+                  ref={popupFileInputRef}
+                  className="hidden" 
+                  accept="image/*"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      const file = e.target.files[0];
+                      if (file.size > 5 * 1024 * 1024) {
+                        showToast("Ukuran file maksimal 5MB", "error");
+                        return;
+                      }
+                      setPopupReceiptFile(file);
+                      setPopupReceiptPreviewUrl(URL.createObjectURL(file));
+                    }
+                  }}
+                />
+              </div>
             </div>
 
             {/* Fixed Bottom Button */}
