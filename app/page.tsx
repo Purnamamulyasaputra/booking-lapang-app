@@ -11,6 +11,94 @@ import { useSession, signIn, signOut } from 'next-auth/react';
 
 import QRCode from 'react-qr-code';
 
+// Helper function to extract payment details in a unified, robust way
+const getPaymentInfo = (booking: any) => {
+  if (!booking) return null;
+  
+  // 1. Try to extract from receipt_img / receiptImg (stored in DB)
+  const receiptVal = booking.receipt_img || booking.receiptImg || "";
+  
+  if (receiptVal.startsWith('QR_STRING:')) {
+    return {
+      type: 'QR_CODE',
+      value: receiptVal.replace('QR_STRING:', ''),
+      channelCode: 'QRIS',
+      title: 'Scan QRIS'
+    };
+  }
+  
+  if (receiptVal.startsWith('CHECKOUT_URL:')) {
+    const val = receiptVal.replace('CHECKOUT_URL:', '');
+    return {
+      type: 'EWALLET',
+      value: val,
+      channelCode: booking.payment_method_code || booking.paymentMethodCode || 'E-Wallet',
+      title: 'Kode Pembayaran E-Wallet'
+    };
+  }
+  
+  if (receiptVal.startsWith('VA_NUMBER:')) {
+    const parts = receiptVal.split(':');
+    return {
+      type: 'VIRTUAL_ACCOUNT',
+      value: parts[2] || '',
+      channelCode: parts[1]?.toUpperCase() || 'Bank Transfer',
+      title: `Virtual Account ${parts[1]?.toUpperCase() || ''}`
+    };
+  }
+  
+  // 2. Fallback to Xendit object if available
+  const xenditType = booking?.xendit?.payment_method?.type;
+  if (xenditType) {
+    if (xenditType === 'QR_CODE') {
+      return {
+        type: 'QR_CODE',
+        value: booking?.xendit?.payment_method?.qr_code?.channel_properties?.qr_string || '',
+        channelCode: 'QRIS',
+        title: 'Scan QRIS'
+      };
+    }
+    if (xenditType === 'EWALLET') {
+      const ewalletProps = booking?.xendit?.payment_method?.ewallet?.channel_properties || {};
+      const actions = booking?.xendit?.actions || [];
+      const qrAction = actions.find((a: any) => a.action === 'QR_CHECKOUT_STRING' || a.url_type === 'QR_CODE');
+      const deeplinkAction = actions.find((a: any) => a.action === 'MOBILE_DEEPLINK_CHECKOUT_URL' || a.url_type === 'DEEPLINK');
+      const webAction = actions.find((a: any) => a.action === 'MOBILE_WEB_CHECKOUT_URL' || a.action === 'DESKTOP_WEB_CHECKOUT_URL' || a.action === 'BROWSER_CHECKOUT_URL' || a.url_type === 'WEB');
+      
+      const val = qrAction?.url || ewalletProps.qr_checkout_string || deeplinkAction?.url || webAction?.url || ewalletProps.mobile_deeplink_checkout_url || ewalletProps.desktop_web_checkout_url || '';
+      
+      return {
+        type: 'EWALLET',
+        value: val,
+        channelCode: booking?.xendit?.payment_method?.ewallet?.channel_code || 'E-Wallet',
+        title: `Scan Barcode ${booking?.xendit?.payment_method?.ewallet?.channel_code || 'E-Wallet'}`
+      };
+    }
+    if (xenditType === 'VIRTUAL_ACCOUNT') {
+      return {
+        type: 'VIRTUAL_ACCOUNT',
+        value: booking?.xendit?.payment_method?.virtual_account?.channel_properties?.virtual_account_number || '',
+        channelCode: booking?.xendit?.payment_method?.virtual_account?.channel_code || 'VA',
+        title: `Virtual Account ${booking?.xendit?.payment_method?.virtual_account?.channel_code || ''}`
+      };
+    }
+  }
+
+  // 3. Fallback heuristic based on paymentMethodCode
+  const pmCode = (booking.payment_method_code || booking.paymentMethodCode || "").toLowerCase();
+  if (pmCode) {
+    if (pmCode.includes('qris')) {
+      return { type: 'QR_CODE', value: '', channelCode: 'QRIS', title: 'Scan QRIS' };
+    }
+    if (['dana', 'ovo', 'gopay', 'shopeepay', 'linkaja'].some(c => pmCode.includes(c))) {
+      return { type: 'EWALLET', value: '', channelCode: pmCode.toUpperCase(), title: `Scan Barcode ${pmCode.toUpperCase()}` };
+    }
+    return { type: 'VIRTUAL_ACCOUNT', value: '', channelCode: pmCode.toUpperCase(), title: `Virtual Account ${pmCode.toUpperCase()}` };
+  }
+  
+  return null;
+};
+
 export default function App() {
   const { data: session } = useSession();
   const user = session?.user;
@@ -222,6 +310,11 @@ export default function App() {
     fetch('/api/fields?public=1')
       .then(res => res.json())
       .then(data => {
+        if (!Array.isArray(data)) {
+          console.error("Fields API returned non-array:", data);
+          setIsLoadingFields(false);
+          return;
+        }
         const adaptedData = data.map((f: any) => ({
           id: f.id,
           name: f.name,
@@ -1840,8 +1933,9 @@ export default function App() {
               <div className="flex items-center justify-center gap-3 mb-5 w-full">
                 <div className="text-center flex items-center justify-center gap-3">
                   {(() => {
-                    const type = createdBooking?.xendit?.payment_method?.type;
-                    const channelCode = createdBooking?.xendit?.payment_method?.virtual_account?.channel_code || createdBooking?.xendit?.payment_method?.ewallet?.channel_code;
+                    const payInfo = getPaymentInfo(createdBooking);
+                    const type = payInfo?.type;
+                    const channelCode = payInfo?.channelCode;
 
                     let n = '';
                     if (type === 'QR_CODE') n = 'qris';
@@ -1876,66 +1970,61 @@ export default function App() {
                     ) : null;
                   })()}
                   <span className="block text-base sm:text-lg text-emerald-600 font-extrabold tracking-wider uppercase leading-none">
-                    {createdBooking?.xendit?.payment_method?.type?.replace('_', ' ')}
-                    {createdBooking?.xendit?.payment_method?.virtual_account?.channel_code && ` - ${createdBooking.xendit.payment_method.virtual_account.channel_code}`}
-                    {createdBooking?.xendit?.payment_method?.ewallet?.channel_code && ` - ${createdBooking.xendit.payment_method.ewallet.channel_code}`}
+                    {(() => {
+                      const payInfo = getPaymentInfo(createdBooking);
+                      if (!payInfo) return createdBooking?.payment_method_code || 'PEMBAYARAN';
+                      return `${payInfo.type?.replace('_', ' ')} - ${payInfo.channelCode}`;
+                    })()}
                   </span>
                 </div>
               </div>
 
-              {createdBooking?.xendit?.payment_method?.type === 'QR_CODE' && (
-                <div className="w-full border-2 border-emerald-100 bg-emerald-50/20 rounded-2xl p-4 flex flex-col items-center">
-                  <div className="w-full flex items-center justify-between bg-white border border-emerald-100 rounded-xl py-3 px-4 shadow-sm mb-4">
-                    <div className="flex-1 flex justify-between items-center">
-                      <div>
-                        <p className="text-[10px] sm:text-xs text-gray-400 font-extrabold tracking-wider uppercase mb-0.5">Nominal Yang Harus Dibayar</p>
-                        <span className="text-lg sm:text-xl font-extrabold text-emerald-600">Rp {Number(createdBooking.total_price).toLocaleString('id-ID')}</span>
+              {(() => {
+                const payInfo = getPaymentInfo(createdBooking);
+                if (!payInfo) return (
+                  <div className="w-full border-2 border-emerald-100 bg-emerald-50/20 rounded-2xl p-4 text-center">
+                    <p className="text-sm font-bold text-gray-700">Menunggu detail kode pembayaran...</p>
+                  </div>
+                );
+
+                if (payInfo.type === 'QR_CODE') {
+                  return (
+                    <div className="w-full border-2 border-emerald-100 bg-emerald-50/20 rounded-2xl p-4 flex flex-col items-center">
+                      <div className="w-full flex items-center justify-between bg-white border border-emerald-100 rounded-xl py-3 px-4 shadow-sm mb-4">
+                        <div className="flex-1 flex justify-between items-center">
+                          <div>
+                            <p className="text-[10px] sm:text-xs text-gray-400 font-extrabold tracking-wider uppercase mb-0.5">Nominal Yang Harus Dibayar</p>
+                            <span className="text-lg sm:text-xl font-extrabold text-emerald-600">Rp {Number(createdBooking.total_price || createdBooking.totalPrice).toLocaleString('id-ID')}</span>
+                          </div>
+                          <button onClick={() => handleCopy((createdBooking.total_price || createdBooking.totalPrice || "").toString(), 'nominal')} className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-bold transition-all active:scale-95 flex-shrink-0 ${copiedNominal ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}>
+                            {copiedNominal ? <CheckCircle2 className="w-3.5 h-3.5" /> : <FileText className="w-3.5 h-3.5" />}
+                            {copiedNominal ? 'Tersalin' : 'Salin'}
+                          </button>
+                        </div>
                       </div>
-                      <button onClick={() => handleCopy(createdBooking.total_price.toString(), 'nominal')} className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-bold transition-all active:scale-95 flex-shrink-0 ${copiedNominal ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}>
-                        {copiedNominal ? <CheckCircle2 className="w-3.5 h-3.5" /> : <FileText className="w-3.5 h-3.5" />}
-                        {copiedNominal ? 'Tersalin' : 'Salin'}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="w-full bg-white border border-emerald-100 rounded-xl p-6 shadow-sm mb-4 flex items-center justify-center">
-                    <QRCode value={createdBooking.xendit.payment_method.qr_code.channel_properties.qr_string} size={220} />
-                  </div>
-                  <p className="text-xs text-gray-500 font-bold text-center bg-white py-2 px-4 rounded-xl border border-gray-100">Scan QR Code di atas menggunakan aplikasi E-Wallet atau M-Banking Anda.</p>
-                </div>
-              )}
-
-              {createdBooking?.xendit?.payment_method?.type === 'EWALLET' && (
-                <div className="w-full border-2 border-emerald-100 bg-emerald-50/20 rounded-2xl p-4 flex flex-col items-center">
-                  <div className="w-full flex items-center justify-between bg-white border border-emerald-100 rounded-xl py-3 px-4 shadow-sm mb-6">
-                    <div className="flex-1 flex justify-between items-center">
-                      <div>
-                        <p className="text-[10px] sm:text-xs text-gray-400 font-extrabold tracking-wider uppercase mb-0.5">Nominal Yang Harus Dibayar</p>
-                        <span className="text-lg sm:text-xl font-extrabold text-emerald-600">Rp {Number(createdBooking.total_price).toLocaleString('id-ID')}</span>
+                      <div className="w-full bg-white border border-emerald-100 rounded-xl p-6 shadow-sm mb-4 flex items-center justify-center">
+                        <QRCode value={payInfo.value || "PAYMENT_QR"} size={220} />
                       </div>
-                      <button onClick={() => handleCopy(createdBooking.total_price.toString(), 'nominal')} className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-bold transition-all active:scale-95 flex-shrink-0 ${copiedNominal ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}>
-                        {copiedNominal ? <CheckCircle2 className="w-3.5 h-3.5" /> : <FileText className="w-3.5 h-3.5" />}
-                        {copiedNominal ? 'Tersalin' : 'Salin'}
-                      </button>
+                      <p className="text-xs text-gray-500 font-bold text-center bg-white py-2 px-4 rounded-xl border border-gray-100">Scan QR Code di atas menggunakan aplikasi E-Wallet atau M-Banking Anda.</p>
                     </div>
-                  </div>
+                  );
+                }
 
-                  {(() => {
-                    const xenditData = createdBooking.xendit || {};
-                    const actions = xenditData.actions || xenditData.payment_method?.ewallet?.channel_properties?.actions || [];
-                    const redirectAction = actions.find((a: any) => a.action === 'MOBILE_DEEPLINK_CHECKOUT_URL' || a.action === 'MOBILE_WEB_CHECKOUT_URL' || a.action === 'DESKTOP_WEB_CHECKOUT_URL' || a.action === 'BROWSER_CHECKOUT_URL' || a.url_type === 'DEEPLINK' || a.url_type === 'WEB');
-                    const qrAction = actions.find((a: any) => a.action === 'QR_CHECKOUT_STRING' || a.url_type === 'QR_CODE');
+                if (payInfo.type === 'EWALLET') {
+                  const isOvo = payInfo.channelCode?.toUpperCase() === 'OVO' || payInfo.value === 'OVO_PUSH';
+                  return (
+                    <div className="w-full border-2 border-emerald-100 bg-emerald-50/20 rounded-2xl p-4 flex flex-col items-center">
+                      <div className="w-full flex items-center justify-between bg-white border border-emerald-100 rounded-xl py-3 px-4 shadow-sm mb-5">
+                        <div>
+                          <p className="text-[10px] text-gray-400 font-extrabold tracking-wider uppercase mb-0.5">Nominal Yang Harus Dibayar</p>
+                          <span className="text-xl font-extrabold text-emerald-600">Rp {Number(createdBooking.total_price || createdBooking.totalPrice).toLocaleString('id-ID')}</span>
+                        </div>
+                        <button onClick={() => handleCopy((createdBooking.total_price || createdBooking.totalPrice || "").toString(), 'nominal')} className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 ${copiedNominal ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}>
+                          {copiedNominal ? <CheckCircle2 className="w-3.5 h-3.5" /> : <FileText className="w-3.5 h-3.5" />}
+                          {copiedNominal ? 'Tersalin' : 'Salin'}
+                        </button>
+                      </div>
 
-                    const ewalletProps = xenditData.payment_method?.ewallet?.channel_properties || {};
-                    const directQrStr = ewalletProps.qr_checkout_string;
-                    const directRedirect = ewalletProps.mobile_deeplink_checkout_url || ewalletProps.desktop_web_checkout_url;
-
-                    const finalQrVal = qrAction?.url || qrAction?.qr_code || directQrStr || redirectAction?.url || directRedirect;
-                    const finalRedirectUrl = redirectAction?.url || directRedirect;
-
-                    const ewalletChannel = xenditData.payment_method?.ewallet?.channel_code;
-                    const isOvo = ewalletChannel === 'OVO';
-
-                    return (
                       <div className="w-full flex flex-col items-center">
                         {isOvo ? (
                           <div className="w-full bg-white border border-emerald-100 rounded-xl p-6 shadow-sm mb-4 flex flex-col items-center text-center">
@@ -1943,62 +2032,72 @@ export default function App() {
                               <span className="text-purple-600 font-extrabold text-xl">OVO</span>
                             </div>
                             <h4 className="font-extrabold text-gray-800 mb-2">Cek Aplikasi OVO Anda</h4>
-                            <p className="text-xs text-gray-500 font-medium">Kami telah mengirimkan notifikasi pembayaran ke aplikasi OVO yang terhubung dengan nomor telepon Anda. Silakan buka aplikasi OVO untuk menyelesaikan pembayaran.</p>
+                            <p className="text-xs text-gray-500 font-medium">Kami telah mengirimkan notifikasi pembayaran ke aplikasi OVO yang terhubung dengan nomor HP Anda. Buka aplikasi OVO untuk menyelesaikan pembayaran.</p>
                           </div>
-                        ) : finalQrVal ? (
+                        ) : payInfo.value && payInfo.value !== 'EWALLET_PUSH' ? (
                           <>
-                            <div className="w-full bg-white border border-emerald-100 rounded-xl p-6 shadow-sm mb-4 flex items-center justify-center">
-                              <QRCode value={finalQrVal} size={220} />
+                            <div className="w-full bg-white border border-emerald-100 rounded-xl p-5 shadow-sm mb-4 flex items-center justify-center">
+                              <QRCode value={payInfo.value} size={200} />
                             </div>
-                            <p className="text-xs text-gray-500 font-bold text-center bg-white py-2 px-4 rounded-xl border border-gray-100 mb-4 w-full">Scan QR Code di atas menggunakan aplikasi E-Wallet Anda atau kamera HP.</p>
+                            <p className="text-xs text-gray-500 font-bold text-center bg-white py-2 px-4 rounded-xl border border-gray-100 mb-4 w-full">
+                              Scan QR Code di atas menggunakan aplikasi {payInfo.channelCode} atau E-Wallet lainnya.
+                            </p>
                           </>
-                        ) : null}
+                        ) : (
+                          <div className="w-full bg-white border border-emerald-100 rounded-xl p-6 shadow-sm mb-4 text-center">
+                            <p className="text-sm font-bold text-gray-700 mb-2">Selesaikan pembayaran melalui aplikasi {payInfo.channelCode}</p>
+                          </div>
+                        )}
 
-                        {finalRedirectUrl && !isOvo && (
+                        {payInfo.value && payInfo.value.startsWith('http') && (
                           <button
-                            onClick={() => window.open(finalRedirectUrl, '_blank')}
-                            className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold py-4 rounded-xl transition-all shadow-md active:scale-95 flex items-center justify-center text-sm"
+                            onClick={() => window.open(payInfo.value, '_blank')}
+                            className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold py-4 rounded-xl transition-all shadow-md active:scale-95 flex items-center justify-center text-sm gap-2"
                           >
-                            Buka Aplikasi
+                            <Wallet className="w-4 h-4" /> Buka Aplikasi {payInfo.channelCode}
                           </button>
                         )}
                       </div>
-                    );
-                  })()}
-                </div>
-              )}
-
-              {createdBooking?.xendit?.payment_method?.type === 'VIRTUAL_ACCOUNT' && (
-                <div className="w-full border-2 border-emerald-100 bg-emerald-50/20 rounded-2xl p-3 sm:p-4 flex flex-col gap-3">
-                  <div className="w-full flex items-center justify-between bg-white border border-emerald-100 rounded-xl py-3 px-3 sm:px-4 shadow-sm">
-                    <div className="flex flex-col">
-                      <p className="text-[9px] sm:text-[10px] text-gray-400 font-extrabold tracking-wider uppercase mb-0.5">Nominal Transfer</p>
-                      <span className="text-sm sm:text-lg font-extrabold text-emerald-600">Rp {Number(createdBooking.total_price).toLocaleString('id-ID')}</span>
                     </div>
-                    <button
-                      onClick={() => handleCopy(createdBooking.total_price.toString(), 'nominal')}
-                      className={`flex items-center justify-center gap-1 px-2.5 py-2 sm:px-4 sm:py-2 rounded-xl font-extrabold text-[9px] sm:text-xs transition-all active:scale-95 shadow-sm border border-transparent flex-shrink-0 ${copiedNominal ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 cursor-pointer'}`}
-                    >
-                      {copiedNominal ? <CheckCircle2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> : <FileText className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
-                      {copiedNominal ? 'Tersalin' : 'Salin'}
-                    </button>
-                  </div>
+                  );
+                }
 
-                  <div className="w-full flex items-center justify-between bg-white border border-emerald-100 rounded-xl py-3 px-3 sm:px-4 shadow-sm">
-                    <div className="flex flex-col min-w-0 mr-2">
-                      <p className="text-[9px] sm:text-[10px] text-gray-400 font-extrabold tracking-wider uppercase mb-0.5">Nomor Virtual Account</p>
-                      <span className="font-mono text-sm sm:text-lg font-extrabold tracking-widest text-emerald-600 truncate">{createdBooking.xendit.payment_method.virtual_account.channel_properties.virtual_account_number}</span>
+                if (payInfo.type === 'VIRTUAL_ACCOUNT') {
+                  return (
+                    <div className="w-full border-2 border-emerald-100 bg-emerald-50/20 rounded-2xl p-3 sm:p-4 flex flex-col gap-3">
+                      <div className="w-full flex items-center justify-between bg-white border border-emerald-100 rounded-xl py-3 px-3 sm:px-4 shadow-sm">
+                        <div className="flex flex-col">
+                          <p className="text-[9px] sm:text-[10px] text-gray-400 font-extrabold tracking-wider uppercase mb-0.5">Nominal Transfer</p>
+                          <span className="text-sm sm:text-lg font-extrabold text-emerald-600">Rp {Number(createdBooking.total_price || createdBooking.totalPrice).toLocaleString('id-ID')}</span>
+                        </div>
+                        <button
+                          onClick={() => handleCopy((createdBooking.total_price || createdBooking.totalPrice || "").toString(), 'nominal')}
+                          className={`flex items-center justify-center gap-1 px-2.5 py-2 sm:px-4 sm:py-2 rounded-xl font-extrabold text-[9px] sm:text-xs transition-all active:scale-95 shadow-sm border border-transparent flex-shrink-0 ${copiedNominal ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 cursor-pointer'}`}
+                        >
+                          {copiedNominal ? <CheckCircle2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> : <FileText className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
+                          {copiedNominal ? 'Tersalin' : 'Salin'}
+                        </button>
+                      </div>
+
+                      <div className="w-full flex items-center justify-between bg-white border border-emerald-100 rounded-xl py-3 px-3 sm:px-4 shadow-sm">
+                        <div className="flex flex-col min-w-0 mr-2">
+                          <p className="text-[9px] sm:text-[10px] text-gray-400 font-extrabold tracking-wider uppercase mb-0.5">Nomor Virtual Account</p>
+                          <span className="font-mono text-sm sm:text-lg font-extrabold tracking-widest text-emerald-600 truncate">{payInfo.value}</span>
+                        </div>
+                        <button
+                          onClick={() => handleCopy(payInfo.value, 'va')}
+                          className={`flex items-center justify-center gap-1 px-2.5 py-2 sm:px-4 sm:py-2 rounded-xl font-extrabold text-[9px] sm:text-xs transition-all active:scale-95 shadow-sm border border-transparent flex-shrink-0 ${copiedBCA ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'}`}
+                        >
+                          {copiedBCA ? <CheckCircle2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> : <FileText className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
+                          {copiedBCA ? 'Tersalin' : 'Salin'}
+                        </button>
+                      </div>
                     </div>
-                    <button
-                      onClick={() => handleCopy(createdBooking.xendit.payment_method.virtual_account.channel_properties.virtual_account_number, 'va')}
-                      className={`flex items-center justify-center gap-1 px-2.5 py-2 sm:px-4 sm:py-2 rounded-xl font-extrabold text-[9px] sm:text-xs transition-all active:scale-95 shadow-sm border border-transparent flex-shrink-0 ${copiedBCA ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'}`}
-                    >
-                      {copiedBCA ? <CheckCircle2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> : <FileText className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
-                      {copiedBCA ? 'Tersalin' : 'Salin'}
-                    </button>
-                  </div>
-                </div>
-              )}
+                  );
+                }
+
+                return null;
+              })()}
             </div>
 
             {/* Konfirmasi Pembayaran Section */}
@@ -2290,40 +2389,54 @@ export default function App() {
               {/* QR / VA Section */}
               {(paymentPopup.type === 'qris' || paymentPopup.type === 'url') ? (
                 <div className="flex flex-col items-center w-full">
-                  <p className="text-[10px] text-gray-400 mb-3 leading-relaxed text-center">
-                    Scan QRIS ini di aplikasi E-Wallet (GOPAY, OVO, DANA, LinkAja) atau m-Banking.
-                  </p>
-                  <div style={{ backgroundColor: 'white', padding: '12px', border: '2px solid #f1f5f9', borderRadius: '16px', marginBottom: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', boxSizing: 'border-box' }}>
-                    <QRCode value={paymentPopup.value} style={{ width: '100%', maxWidth: '160px', height: 'auto' }} id="qris-canvas" />
-                  </div>
+                  {paymentPopup.value === 'OVO_PUSH' ? (
+                    <div className="w-full bg-white border border-purple-100 rounded-xl p-5 mb-4 flex flex-col items-center text-center">
+                      <div className="w-14 h-14 bg-purple-100 rounded-full flex items-center justify-center mb-3">
+                        <span className="text-purple-600 font-extrabold text-lg">OVO</span>
+                      </div>
+                      <h4 className="font-extrabold text-gray-800 mb-2 text-xs">Cek Aplikasi OVO Anda</h4>
+                      <p className="text-[10px] text-gray-500 font-medium leading-relaxed">Notifikasi tagihan telah dikirimkan ke aplikasi OVO Anda. Silakan buka aplikasi OVO untuk menyelesaikan pembayaran.</p>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-[10px] text-gray-400 mb-3 leading-relaxed text-center">
+                        Scan QRIS/Barcode ini di aplikasi E-Wallet (GOPAY, OVO, DANA, LinkAja) atau m-Banking.
+                      </p>
+                      <div style={{ backgroundColor: 'white', padding: '12px', border: '2px solid #f1f5f9', borderRadius: '16px', marginBottom: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', boxSizing: 'border-box' }} className="flex justify-center items-center">
+                        <QRCode value={paymentPopup.value || "PAYMENT_QR"} style={{ width: '100%', maxWidth: '160px', height: 'auto' }} id="qris-canvas" />
+                      </div>
+                    </>
+                  )}
                   <div className="flex flex-col gap-2 w-full">
-                    <button
-                      onClick={() => {
-                        const svg = document.getElementById('qris-canvas');
-                        if (svg) {
-                          const svgData = new XMLSerializer().serializeToString(svg);
-                          const canvas = document.createElement('canvas');
-                          const ctx = canvas.getContext('2d');
-                          const img = new Image();
-                          img.onload = () => {
-                            canvas.width = img.width;
-                            canvas.height = img.height;
-                            ctx?.drawImage(img, 0, 0);
-                            const pngFile = canvas.toDataURL('image/png');
-                            const downloadLink = document.createElement('a');
-                            downloadLink.download = `QRIS-${paymentPopup.booking?.bookingCode || 'PAYMENT'}.png`;
-                            downloadLink.href = pngFile;
-                            downloadLink.click();
-                            showToast('Barcode QRIS berhasil diunduh');
-                          };
-                          img.src = 'data:image/svg+xml;base64,' + btoa(svgData);
-                        }
-                      }}
-                      className="inline-flex items-center justify-center w-full py-2.5 bg-slate-100 text-slate-700 rounded-xl font-extrabold text-xs hover:bg-slate-200 transition-colors active:scale-95"
-                    >
-                      <Download className="w-3.5 h-3.5 mr-1.5" /> Unduh Barcode
-                    </button>
-                    {paymentPopup.type === 'url' ? (
+                    {paymentPopup.value !== 'OVO_PUSH' && (
+                      <button
+                        onClick={() => {
+                          const svg = document.getElementById('qris-canvas');
+                          if (svg) {
+                            const svgData = new XMLSerializer().serializeToString(svg);
+                            const canvas = document.createElement('canvas');
+                            const ctx = canvas.getContext('2d');
+                            const img = new Image();
+                            img.onload = () => {
+                              canvas.width = img.width;
+                              canvas.height = img.height;
+                              ctx?.drawImage(img, 0, 0);
+                              const pngFile = canvas.toDataURL('image/png');
+                              const downloadLink = document.createElement('a');
+                              downloadLink.download = `QRIS-${paymentPopup.booking?.bookingCode || 'PAYMENT'}.png`;
+                              downloadLink.href = pngFile;
+                              downloadLink.click();
+                              showToast('Barcode QRIS berhasil diunduh');
+                            };
+                            img.src = 'data:image/svg+xml;base64,' + btoa(svgData);
+                          }
+                        }}
+                        className="inline-flex items-center justify-center w-full py-2.5 bg-slate-100 text-slate-700 rounded-xl font-extrabold text-xs hover:bg-slate-200 transition-colors active:scale-95"
+                      >
+                        <Download className="w-3.5 h-3.5 mr-1.5" /> Unduh Barcode
+                      </button>
+                    )}
+                    {paymentPopup.type === 'url' && paymentPopup.value && paymentPopup.value.startsWith('http') ? (
                       <a
                         href={paymentPopup.value}
                         target="_blank"
@@ -2334,7 +2447,13 @@ export default function App() {
                       </a>
                     ) : (
                       <button
-                        onClick={() => showToast('Silakan buka aplikasi E-Wallet dari HP Anda dan unggah QRIS yang baru diunduh.')}
+                        onClick={() => {
+                          if (paymentPopup.value === 'OVO_PUSH') {
+                            showToast('Silakan buka aplikasi OVO di HP Anda.');
+                          } else {
+                            showToast('Silakan buka aplikasi E-Wallet Anda.');
+                          }
+                        }}
                         className="inline-flex items-center justify-center w-full py-2.5 bg-emerald-600 text-white rounded-xl font-extrabold text-xs shadow-md hover:bg-emerald-700 transition-colors active:scale-95"
                       >
                         <Wallet className="w-3.5 h-3.5 mr-1.5" /> Buka Aplikasi E-Wallet

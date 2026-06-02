@@ -412,15 +412,30 @@ export async function POST(req: Request) {
             else if (paymentMethodName.includes('linkaja')) channel = "LINKAJA";
           }
 
+          // Format phone number to E.164 format (+628...) for Xendit e-wallet triggers
+          let formattedPhone = customerPhone || "";
+          if (formattedPhone.startsWith('0')) {
+            formattedPhone = '+62' + formattedPhone.slice(1);
+          } else if (formattedPhone && !formattedPhone.startsWith('+')) {
+            formattedPhone = '+' + formattedPhone;
+          }
+
+          const channelProps: any = {
+            success_return_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/payment-success?booking=${bookingCode}`
+          };
+
+          // OVO and Gopay work best when mobile_number is passed in channel_properties
+          if (formattedPhone) {
+            channelProps.mobile_number = formattedPhone;
+          }
+
           xenditPayload.country = "ID";
           xenditPayload.payment_method = {
             type: "EWALLET",
             reusability: "ONE_TIME_USE",
             ewallet: {
               channel_code: channel,
-              channel_properties: {
-                success_return_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/payment-success?booking=${bookingCode}`
-              }
+              channel_properties: channelProps
             }
           };
         } else if (isVA) {
@@ -456,14 +471,41 @@ export async function POST(req: Request) {
           let qrStringOrUrl = "";
           let receiptImgToSave = "";
           
+          // For eWallet (GOPAY, OVO, DANA etc) - get checkout URL or QR from actions
           if (xenditResponseData.actions && xenditResponseData.actions.length > 0) {
-            const action = xenditResponseData.actions[0];
-            qrStringOrUrl = action.url || action.qr_code || "";
+            // Priority: QR checkout string > mobile deeplink > web checkout
+            const qrAction = xenditResponseData.actions.find((a: any) => 
+              a.action === 'QR_CHECKOUT_STRING' || a.url_type === 'QR_CODE'
+            );
+            const deeplinkAction = xenditResponseData.actions.find((a: any) => 
+              a.action === 'MOBILE_DEEPLINK_CHECKOUT_URL' || a.url_type === 'DEEPLINK'
+            );
+            const webAction = xenditResponseData.actions.find((a: any) => 
+              a.action === 'MOBILE_WEB_CHECKOUT_URL' || a.action === 'DESKTOP_WEB_CHECKOUT_URL' || 
+              a.action === 'BROWSER_CHECKOUT_URL' || a.url_type === 'WEB'
+            );
+            
+            if (qrAction) qrStringOrUrl = qrAction.url || qrAction.qr_code || "";
+            else if (deeplinkAction) qrStringOrUrl = deeplinkAction.url || "";
+            else if (webAction) qrStringOrUrl = webAction.url || "";
+            else qrStringOrUrl = xenditResponseData.actions[0]?.url || "";
           }
 
+          // Also check nested ewallet channel_properties for QR
+          const ewalletProps = xenditResponseData.payment_method?.ewallet?.channel_properties || {};
+          if (!qrStringOrUrl && ewalletProps.qr_checkout_string) {
+            qrStringOrUrl = ewalletProps.qr_checkout_string;
+          }
+          if (!qrStringOrUrl && (ewalletProps.mobile_deeplink_checkout_url || ewalletProps.desktop_web_checkout_url)) {
+            qrStringOrUrl = ewalletProps.mobile_deeplink_checkout_url || ewalletProps.desktop_web_checkout_url;
+          }
+
+          // For QRIS QR_CODE type
           if (!qrStringOrUrl && xenditResponseData.payment_method?.qr_code?.channel_properties?.qr_string) {
             qrStringOrUrl = xenditResponseData.payment_method.qr_code.channel_properties.qr_string;
           }
+
+          const channelCodeUpper = (channel || "").toUpperCase();
 
           if (isVA && xenditResponseData.payment_method?.virtual_account?.channel_properties?.virtual_account_number) {
             paymentDetailsOverride = xenditResponseData.payment_method.virtual_account.channel_properties.virtual_account_number;
@@ -471,6 +513,14 @@ export async function POST(req: Request) {
           } else if (isEwallet && qrStringOrUrl) {
             paymentDetailsOverride = `Silakan selesaikan pembayaran melalui link berikut: ${qrStringOrUrl}`;
             receiptImgToSave = `CHECKOUT_URL:${qrStringOrUrl}`;
+          } else if (isEwallet && channelCodeUpper === 'OVO') {
+            paymentDetailsOverride = `Silakan selesaikan pembayaran melalui aplikasi OVO Anda (Notifikasi Push).`;
+            receiptImgToSave = `CHECKOUT_URL:OVO_PUSH`;
+          } else if (isEwallet) {
+            // Fallback checkout URL for other e-wallets if URL couldn't be parsed
+            const fallbackUrl = xenditResponseData.actions?.[0]?.url || "";
+            paymentDetailsOverride = fallbackUrl ? `Silakan selesaikan pembayaran melalui link berikut: ${fallbackUrl}` : `Silakan selesaikan pembayaran melalui aplikasi E-Wallet Anda.`;
+            receiptImgToSave = `CHECKOUT_URL:${fallbackUrl || 'EWALLET_PUSH'}`;
           } else if (isQRIS && qrStringOrUrl) {
             paymentDetailsOverride = `Silakan scan QRIS untuk pembayaran. Kode QR telah dikirim ke aplikasi.`;
             receiptImgToSave = `QR_STRING:${qrStringOrUrl}`;
