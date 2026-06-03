@@ -2478,6 +2478,14 @@ export default function App() {
                         <Download className="w-3.5 h-3.5 mr-1.5" /> Unduh Barcode
                       </button>
                     )}
+                    {paymentPopup.type === 'qris' && (
+                      <button
+                        onClick={() => { window.location.href = 'https://simulate.xendit.co/qris'; }}
+                        className="inline-flex items-center justify-center w-full py-2.5 bg-emerald-600 text-white rounded-xl font-extrabold text-xs shadow-md hover:bg-emerald-700 transition-colors active:scale-95 gap-1.5"
+                      >
+                        <Wallet className="w-3.5 h-3.5" /> Pay (Simulasi)
+                      </button>
+                    )}
                     {paymentPopup.type === 'url' && paymentPopup.value && paymentPopup.value.startsWith('http') ? (
                       <a
                         href={paymentPopup.value}
@@ -2487,7 +2495,7 @@ export default function App() {
                       >
                         <Wallet className="w-3.5 h-3.5 mr-1.5" /> Buka Aplikasi E-Wallet
                       </a>
-                    ) : (
+                    ) : paymentPopup.type === 'url' ? (
                       <button
                         onClick={() => {
                           if (paymentPopup.value === 'OVO_PUSH') {
@@ -2500,10 +2508,10 @@ export default function App() {
                       >
                         <Wallet className="w-3.5 h-3.5 mr-1.5" /> Buka Aplikasi E-Wallet
                       </button>
-                    )}
+                    ) : null}
                   </div>
                 </div>
-              ) : paymentPopup.type === 'OVER_THE_COUNTER' ? (
+              ) : (paymentPopup.type === 'OVER_THE_COUNTER' || paymentPopup.type === 'retail') ? (
                 (() => {
                   const channelCode = (paymentPopup.channelCode || '').toLowerCase();
                   const matchedDbPm = dbPaymentMethods?.find((pm: any) => (pm.code || '').toLowerCase() === channelCode);
@@ -2516,7 +2524,7 @@ export default function App() {
 
                       <div className="w-full max-w-sm rounded-[24px] overflow-hidden bg-emerald-600 pt-2 pb-[3px] px-[3px]">
                         <div className="bg-emerald-600 pb-3 px-4 text-center">
-                          <span className="font-bold text-white text-[14px]">Show this barcode to the cashier</span>
+                          <span className="font-bold text-white text-[14px]">Tunjukkan barcode ini ke kasir</span>
                         </div>
 
                         <div className="bg-white rounded-[20px] p-6 pb-5 flex flex-col items-center">
@@ -2561,20 +2569,29 @@ export default function App() {
                   );
                 })()
               ) : (
-                <div className="bg-emerald-50 rounded-2xl p-4 border border-emerald-100 text-center w-full">
-                  <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider mb-2">Nomor Virtual Account</p>
-                  <div className="flex items-center justify-center gap-2 mb-2 min-w-0">
-                    <p className="text-base font-black tracking-wider text-emerald-800 break-all min-w-0">{paymentPopup.value}</p>
-                    <button
-                      onClick={() => { navigator.clipboard.writeText(paymentPopup.value); showToast('Nomor VA disalin ke clipboard'); }}
-                      className="p-1.5 bg-white border border-emerald-100 rounded-lg hover:bg-emerald-50 active:scale-95 transition-all text-emerald-600 shrink-0"
-                    >
-                      <Copy className="w-3.5 h-3.5" />
-                    </button>
+                <div className="flex flex-col gap-3 w-full">
+                  <div className="bg-emerald-50 rounded-2xl p-4 border border-emerald-100 text-center w-full">
+                    <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider mb-2">Nomor Virtual Account</p>
+                    <div className="flex items-center justify-center gap-2 mb-2 min-w-0">
+                      <p className="text-base font-black tracking-wider text-emerald-800 break-all min-w-0">{paymentPopup.value}</p>
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(paymentPopup.value); showToast('Nomor VA disalin ke clipboard'); }}
+                        className="p-1.5 bg-white border border-emerald-100 rounded-lg hover:bg-emerald-50 active:scale-95 transition-all text-emerald-600 shrink-0"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-emerald-500 leading-relaxed">
+                      Pembayaran terdeteksi otomatis setelah transfer.
+                    </p>
                   </div>
-                  <p className="text-[10px] text-emerald-500 leading-relaxed">
-                    Pembayaran terdeteksi otomatis setelah transfer.
-                  </p>
+
+                  <button
+                    onClick={() => { window.location.href = 'https://simulate.xendit.co/'; }}
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-2.5 rounded-xl transition-all shadow-md active:scale-95 flex items-center justify-center text-xs gap-2"
+                  >
+                    <Wallet className="w-3.5 h-3.5" /> Pay (Simulasi)
+                  </button>
                 </div>
               )}
 

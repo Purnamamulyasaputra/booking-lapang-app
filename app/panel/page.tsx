@@ -95,6 +95,29 @@ export default function AdminPanel() {
         const adapted = data.map((b: any) => {
           const dateObj = new Date(b.booking_date);
           const localRawDate = dateObj.getFullYear() + '-' + String(dateObj.getMonth() + 1).padStart(2, '0') + '-' + String(dateObj.getDate()).padStart(2, '0');
+          
+          let pmCode = b.payment_method_code || null;
+          let pmName = b.payment_method || 'Transfer';
+          
+          if (!pmCode && b.receipt_img) {
+            const imgStr = b.receipt_img;
+            if (imgStr.startsWith('QR_STRING:')) {
+              pmCode = 'QRIS';
+              pmName = 'QRIS';
+            } else if (imgStr.startsWith('VA_NUMBER:')) {
+              const parts = imgStr.split(':');
+              pmCode = parts[1] || 'VA';
+              pmName = 'Virtual Account';
+            } else if (imgStr.startsWith('RETAIL_OUTLET:')) {
+              const parts = imgStr.split(':');
+              pmCode = parts[1] || 'OTC';
+              pmName = 'Over The Counter';
+            } else if (imgStr.startsWith('CHECKOUT_URL:')) {
+              pmCode = 'E-Wallet';
+              pmName = 'E-Wallet';
+            }
+          }
+
           return {
             id: b.id,
             bookingCode: b.booking_code,
@@ -110,7 +133,8 @@ export default function AdminPanel() {
             duration: b.end_hour - b.start_hour,
             price: Number(b.total_price),
             status: b.status.toLowerCase(),
-            paymentMethod: b.payment_method || 'Transfer',
+            paymentMethod: pmName,
+            paymentMethodCode: pmCode,
             receiptImg: b.receipt_img || null,
             submitTime: new Date(b.created_at).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + ' | ' + new Date(b.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }).replace(/\./g, ':')
           };
@@ -987,6 +1011,66 @@ export default function AdminPanel() {
     const receiptUrl = selectedReceipt.receiptImg;
     const isXenditPayment = receiptUrl && (receiptUrl.startsWith('QR_STRING:') || receiptUrl.startsWith('CHECKOUT_URL:') || receiptUrl.startsWith('VA_NUMBER:') || receiptUrl.startsWith('RETAIL_OUTLET:'));
     const isUploaded = receiptUrl && !isXenditPayment && !receiptUrl.includes('via.placeholder.com');
+    
+    const isAutomaticPayment = isXenditPayment || 
+      (selectedReceipt.paymentMethodCode && 
+       ['dana', 'ovo', 'gopay', 'shopeepay', 'linkaja', 'qris', 'bca', 'bri', 'bni', 'mandiri', 'bjb', 'bsi', 'permata', 'bnc'].includes(selectedReceipt.paymentMethodCode.toLowerCase())) ||
+      (selectedReceipt.paymentMethod && 
+       ['e-wallet', 'virtual account', 'qris', 'ewallet'].includes(selectedReceipt.paymentMethod.toLowerCase()));
+
+    const getPaymentMethodDisplay = () => {
+      const method = selectedReceipt.paymentMethod || 'Transfer';
+      const code = selectedReceipt.paymentMethodCode;
+      if (!code) return method;
+      
+      const codeUpper = code.toUpperCase();
+      let cleanCode = codeUpper
+        .replace(/_VA$/, '')
+        .replace(/_VIRTUAL_ACCOUNT$/, '')
+        .replace(/VIRTUAL ACCOUNT$/, '')
+        .replace(/_EWALLET$/, '')
+        .replace(/EWALLET_$/, '')
+        .replace(/_E_WALLET$/, '')
+        .replace(/E_WALLET_$/, '')
+        .replace(/_QRIS$/, '')
+        .replace(/_OTC$/, '')
+        .trim();
+
+      if (['DANA', 'OVO', 'GOPAY', 'SHOPEEPAY', 'LINKAJA', 'OVO_PUSH', 'OVO PUSH'].includes(cleanCode)) {
+        return `${cleanCode === 'OVO_PUSH' || cleanCode === 'OVO PUSH' ? 'OVO' : cleanCode} (E-Wallet)`;
+      }
+      if (['BCA', 'BRI', 'BNI', 'MANDIRI', 'BSI', 'PERMATA', 'BJB', 'BNC'].includes(cleanCode)) {
+        return `${cleanCode} (Virtual Account)`;
+      }
+      if (['ALFAMART', 'INDOMARET'].includes(cleanCode)) {
+        return `${cleanCode} (Gerai Retail)`;
+      }
+      if (cleanCode === 'QRIS') {
+        return 'QRIS';
+      }
+      return `${cleanCode} (${method})`;
+    };
+
+    const rawStatus = (selectedReceipt.status || '').toLowerCase();
+    let displayStatus = "Menunggu";
+    let statusBadgeClass = "bg-orange-100 text-orange-800 border-orange-200";
+
+    if (rawStatus === 'menunggu pembayaran' || rawStatus === 'menunggu') {
+      displayStatus = 'Menunggu';
+      statusBadgeClass = "bg-orange-100 text-orange-800 border border-orange-200";
+    } else if (rawStatus === 'paid' || rawStatus === 'dikonfirmasi' || rawStatus === 'lunas') {
+      displayStatus = 'Sukses';
+      statusBadgeClass = "bg-emerald-100 text-emerald-800 border border-emerald-200";
+    } else if (rawStatus === 'dibatalkan') {
+      displayStatus = 'Dibatalkan';
+      statusBadgeClass = "bg-red-100 text-red-800 border border-red-200";
+    } else if (rawStatus === 'ditolak') {
+      displayStatus = 'Ditolak';
+      statusBadgeClass = "bg-red-100 text-red-800 border border-red-200";
+    } else {
+      displayStatus = rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1);
+      statusBadgeClass = "bg-gray-100 text-gray-800 border border-gray-200";
+    }
 
     return (
       <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
@@ -996,7 +1080,7 @@ export default function AdminPanel() {
           <div className="flex justify-between items-center p-5 border-b border-gray-100 bg-gray-50">
             <div>
               <h3 className="font-extrabold text-lg text-gray-900">
-                {isXenditPayment ? 'Detail Pesanan (Pembayaran Otomatis)' : 'Validasi Bukti Pembayaran'}
+                {isAutomaticPayment ? 'Detail Pesanan (Pembayaran Otomatis)' : 'Validasi Bukti Pembayaran'}
               </h3>
               <div className="flex items-center gap-2 mt-0.5">
                 <p className="text-xs font-medium text-gray-500">ID Pesanan: {selectedReceipt.id}</p>
@@ -1009,81 +1093,67 @@ export default function AdminPanel() {
           </div>
 
           {/* Body */}
-          <div className="p-5 flex-1 overflow-y-auto flex flex-col md:flex-row gap-6">
-            {/* Kolom Kiri: Gambar */}
-            <div className="w-full md:w-1/2 flex flex-col">
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Gambar Bukti Transfer</p>
-              <div
-                className={`bg-gray-100 rounded-2xl p-2 border border-gray-200 flex-1 h-[300px] md:h-[400px] flex flex-col items-center justify-center relative ${isUploaded ? 'group cursor-pointer overflow-hidden' : ''}`}
-                onClick={() => isUploaded && setIsPreviewModalOpen(true)}
-              >
-                {isUploaded ? (
-                  <>
-                    {receiptUrl.startsWith('QR_STRING:') ? (
-                      <div className="flex flex-col items-center justify-center p-4 text-center">
-                        <QrCode className="w-16 h-16 text-emerald-500 mb-3" />
-                        <p className="font-extrabold text-gray-800">Pembayaran via QRIS</p>
-                        <p className="text-xs text-gray-500 mt-1">Sistem otomatis menunggu pembayaran</p>
+          <div className={`p-5 flex-1 overflow-y-auto flex flex-col ${isAutomaticPayment ? 'max-w-md mx-auto w-full' : 'md:flex-row'} gap-6`}>
+            {/* Kolom Kiri: Gambar (Hanya untuk transfer manual) */}
+            {!isAutomaticPayment && (
+              <div className="w-full md:w-1/2 flex flex-col">
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Gambar Bukti Transfer</p>
+                <div
+                  className={`bg-gray-100 rounded-2xl p-2 border border-gray-200 flex-1 h-[300px] md:h-[400px] flex flex-col items-center justify-center relative ${isUploaded ? 'group cursor-pointer overflow-hidden' : ''}`}
+                  onClick={() => isUploaded && setIsPreviewModalOpen(true)}
+                >
+                  {isUploaded ? (
+                    <>
+                      <img
+                        src={receiptUrl}
+                        alt="Bukti Transfer"
+                        className="w-full h-full object-contain rounded-xl group-hover:scale-105 transition-transform"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                          const fallback = e.currentTarget.nextElementSibling;
+                          if (fallback) fallback.style.display = 'flex';
+                        }}
+                      />
+                      <div style={{ display: 'none' }} className="flex-col items-center text-center p-4 w-full h-full justify-center absolute inset-0 bg-gray-50 rounded-xl">
+                        <FileImage className="w-12 h-12 text-gray-400 mb-2" />
+                        <p className="text-sm font-bold text-gray-600">Gagal memuat gambar</p>
+                        <p className="text-[10px] text-gray-500 mt-1 break-all bg-white p-2 rounded border border-gray-200 w-full">{receiptUrl.split('/').pop() || receiptUrl}</p>
                       </div>
-                    ) : receiptUrl.startsWith('CHECKOUT_URL:') ? (
-                      <div className="flex flex-col items-center justify-center p-4 text-center">
-                        <Wallet className="w-16 h-16 text-blue-500 mb-3" />
-                        <p className="font-extrabold text-gray-800">Pembayaran via E-Wallet</p>
-                        <p className="text-xs text-gray-500 mt-1">Sistem otomatis menunggu pembayaran</p>
-                        <a href={receiptUrl.replace('CHECKOUT_URL:', '')} target="_blank" rel="noopener noreferrer" className="mt-3 text-xs text-blue-600 hover:underline">Lihat Link Pembayaran</a>
+                      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40 rounded-2xl">
+                        <Search className="w-8 h-8 text-white" />
                       </div>
-                    ) : receiptUrl.startsWith('VA_NUMBER:') ? (
-                      <div className="flex flex-col items-center justify-center p-4 text-center">
-                        <CreditCard className="w-16 h-16 text-emerald-500 mb-3" />
-                        <p className="font-extrabold text-gray-800">Pembayaran via Virtual Account</p>
-                        <p className="text-xl font-black text-gray-900 tracking-widest my-2">{receiptUrl.split(':')[2]}</p>
-                        <p className="text-xs text-gray-500">Sistem otomatis menunggu pembayaran</p>
-                      </div>
-                    ) : (
-                      <>
-                        <img
-                          src={receiptUrl}
-                          alt="Bukti Transfer"
-                          className="w-full h-full object-contain rounded-xl group-hover:scale-105 transition-transform"
-                          onError={(e) => {
-                            e.currentTarget.style.display = 'none';
-                            const fallback = e.currentTarget.nextElementSibling;
-                            if (fallback) fallback.style.display = 'flex';
-                          }}
-                        />
-                        <div style={{ display: 'none' }} className="flex-col items-center text-center p-4 w-full h-full justify-center absolute inset-0 bg-gray-50 rounded-xl">
-                          <FileImage className="w-12 h-12 text-gray-400 mb-2" />
-                          <p className="text-sm font-bold text-gray-600">Gagal memuat gambar</p>
-                          <p className="text-[10px] text-gray-500 mt-1 break-all bg-white p-2 rounded border border-gray-200 w-full">{receiptUrl.split('/').pop() || receiptUrl}</p>
-                        </div>
-                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40 rounded-2xl">
-                          <Search className="w-8 h-8 text-white" />
-                        </div>
-                      </>
-                    )}
-                  </>
-                ) : (
-                  <div className="flex flex-col items-center text-center p-4">
-                    <FileImage className="w-16 h-16 text-gray-300 mb-3" />
-                    <p className="font-extrabold text-gray-500 text-sm">Foto bukti belum dikirim</p>
-                    <p className="text-[10px] font-medium text-gray-400 mt-1">Pelanggan belum mengunggah foto bukti transfer.</p>
-                  </div>
-                )}
+                    </>
+                  ) : (
+                    <div className="flex flex-col items-center text-center p-4">
+                      <FileImage className="w-16 h-16 text-gray-300 mb-3" />
+                      <p className="font-extrabold text-gray-500 text-sm">Foto bukti belum dikirim</p>
+                      <p className="text-[10px] font-medium text-gray-400 mt-1">Pelanggan belum mengunggah foto bukti transfer.</p>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* Kolom Kanan: Rincian Pesanan */}
-            <div className="w-full md:w-1/2 space-y-4">
+            {/* Kolom Rincian Pesanan */}
+            <div className={`w-full ${isAutomaticPayment ? '' : 'md:w-1/2'} space-y-4`}>
               <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl">
                 <p className="text-xs font-bold text-emerald-800 uppercase mb-1">Total Yang Harus Dibayar</p>
                 <p className="text-3xl font-extrabold text-emerald-600">Rp {selectedReceipt.price.toLocaleString('id-ID')}</p>
 
-                {/* Asal Pembayaran (BCA, DANA, OVO, dll) */}
-                <div className="mt-3 pt-3 border-t border-emerald-200 flex justify-between items-center">
-                  <span className="text-xs font-bold text-emerald-700">Metode Pembayaran</span>
-                  <span className="text-xs font-extrabold bg-emerald-600 text-white px-2 py-1 rounded shadow-sm">
-                    {selectedReceipt.paymentMethod}
-                  </span>
+                <div className="mt-4 pt-3 border-t border-emerald-200/60 space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-bold text-emerald-700">Metode Pembayaran</span>
+                    <span className="text-xs font-extrabold bg-emerald-600 text-white px-2.5 py-1 rounded-lg shadow-sm">
+                      {getPaymentMethodDisplay()}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-bold text-emerald-700">Status Pembayaran</span>
+                    <span className={`text-xs font-extrabold px-2.5 py-1 rounded-lg shadow-sm ${statusBadgeClass}`}>
+                      {displayStatus}
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -1095,7 +1165,7 @@ export default function AdminPanel() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-xs text-gray-500 font-medium">Waktu Booking</span>
-                  <span className="text-xs font-bold text-gray-900">{selectedReceipt.submitTime}</span>
+                  <span className="text-xs font-bold text-gray-900">{selectedReceipt.submitTime} WIB</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-xs text-gray-500 font-medium">No. HP</span>
@@ -1107,7 +1177,9 @@ export default function AdminPanel() {
                 <p className="text-sm font-extrabold text-gray-900 border-b border-gray-100 pb-2">Jadwal Lapangan</p>
                 <div>
                   <span className="text-xs text-gray-500 font-medium block mb-0.5">Lapangan</span>
-                  <span className="text-xs font-bold text-gray-900 leading-tight block">{selectedReceipt.fieldName}</span>
+                  <span className="text-xs font-bold text-gray-900 leading-tight block">
+                    {selectedReceipt.fieldName ? selectedReceipt.fieldName.split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ') : ''}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-xs text-gray-500 font-medium">Tanggal</span>
@@ -1115,7 +1187,7 @@ export default function AdminPanel() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-xs text-gray-500 font-medium">Jam</span>
-                  <span className="text-xs font-bold text-gray-900">{selectedReceipt.time} ({selectedReceipt.duration} Jam)</span>
+                  <span className="text-xs font-bold text-gray-900">{selectedReceipt.time} WIB ({selectedReceipt.duration} Jam)</span>
                 </div>
               </div>
             </div>

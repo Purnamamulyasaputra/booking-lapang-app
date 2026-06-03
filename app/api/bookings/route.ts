@@ -27,10 +27,12 @@ export async function GET(req: Request) {
     }
 
     let query = `
-      SELECT b.*, f.name as field_name, f.images as field_images, c.name as customer_name, COALESCE(b.customer_phone, c.phone) as customer_phone
+      SELECT b.*, f.name as field_name, f.images as field_images, c.name as customer_name, COALESCE(b.customer_phone, c.phone) as customer_phone,
+             pm.name as payment_method, pm.code as payment_method_code
       FROM bookings b
       JOIN fields f ON b.field_id = f.id
       JOIN customers c ON b.customer_id = c.id
+      LEFT JOIN payment_methods pm ON b.payment_method_id = pm.id
     `;
     const values: any[] = [];
 
@@ -265,7 +267,8 @@ export async function POST(req: Request) {
       paymentMethod,
       receiptImg,
       customerPhone,
-      paymentMethodCode
+      paymentMethodCode,
+      paymentMethodId
     } = body;
 
     let resolvedCustomerId = customerId;
@@ -327,9 +330,9 @@ export async function POST(req: Request) {
     const bookingCode = `BK-${Date.now().toString().slice(-6)}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     const result = await pool.query(
-      `INSERT INTO bookings (booking_code, customer_id, field_id, booking_date, start_hour, end_hour, total_price, receipt_img, status, customer_phone)
-       VALUES ($1, $2, $3, $4::date, $5, $6, $7, $8, 'MENUNGGU', $9) RETURNING *`,
-      [bookingCode, resolvedCustomerId, fieldId, bookingDate, startHour, endHour, totalPrice, receiptImg || null, customerPhone || null]
+      `INSERT INTO bookings (booking_code, customer_id, field_id, payment_method_id, booking_date, start_hour, end_hour, total_price, receipt_img, status, customer_phone)
+       VALUES ($1, $2, $3, $4, $5::date, $6, $7, $8, $9, 'MENUNGGU', $10) RETURNING *`,
+      [bookingCode, resolvedCustomerId, fieldId, paymentMethodId || null, bookingDate, startHour, endHour, totalPrice, receiptImg || null, customerPhone || null]
     );
 
     const booking = result.rows[0];
@@ -338,7 +341,6 @@ export async function POST(req: Request) {
     let xenditResponseData = null;
     let paymentMethodName = paymentMethodCode?.toLowerCase() || '';
     let paymentDetailsOverride = "";
-    const paymentMethodId = body.paymentMethodId;
 
     try {
       const xenditApiKey = process.env.XENDIT_API_KEY || '';
