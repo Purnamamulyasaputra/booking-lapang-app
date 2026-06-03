@@ -175,6 +175,7 @@ export default function App() {
   const [createdBooking, setCreatedBooking] = useState<any>(null);
   const [isSubmittingMethod, setIsSubmittingMethod] = useState(false);
   const [isSubmittingReceipt, setIsSubmittingReceipt] = useState(false);
+  const [isSimulating, setIsSimulating] = useState(false);
 
   // E-Wallet Specific States
   const [ovoNumber, setOvoNumber] = useState('');
@@ -220,6 +221,30 @@ export default function App() {
     } else {
       setCopiedEwallet(true);
       setTimeout(() => setCopiedEwallet(false), 2000);
+    }
+  };
+
+  const handleSimulatePayment = async (bookingCode: string) => {
+    if (!bookingCode) return;
+    setIsSimulating(true);
+    try {
+      const res = await fetch('/api/bookings/simulate-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookingCode })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast("Simulasi pembayaran berhasil!", "success");
+        window.location.href = `/payment-success?booking=${bookingCode}`;
+      } else {
+        showToast(data.error || "Gagal melakukan simulasi pembayaran", "error");
+      }
+    } catch (err) {
+      console.error("Error simulating payment:", err);
+      showToast("Terjadi kesalahan jaringan saat melakukan simulasi", "error");
+    } finally {
+      setIsSimulating(false);
     }
   };
 
@@ -2040,7 +2065,17 @@ export default function App() {
                       <div className="w-full bg-white border border-emerald-100 rounded-xl p-6 shadow-sm mb-4 flex items-center justify-center">
                         <QRCode value={payInfo.value || "PAYMENT_QR"} size={220} />
                       </div>
-                      <p className="text-xs text-gray-500 font-bold text-center bg-white py-2 px-4 rounded-xl border border-gray-100">Scan QR Code di atas menggunakan aplikasi E-Wallet atau M-Banking Anda.</p>
+                      <p className="text-xs text-gray-500 font-bold text-center bg-white py-2 px-4 rounded-xl border border-gray-100 mb-3">Scan QR Code di atas menggunakan aplikasi E-Wallet atau M-Banking Anda.</p>
+                      
+                      <button
+                        onClick={() => {
+                          const bookingCode = createdBooking.booking_code || createdBooking.bookingCode;
+                          window.location.href = `/simulate-checkout?booking=${bookingCode}&type=${payInfo.type}&channel=${payInfo.channelCode}&va=${payInfo.value}&amount=${createdBooking.total_price || createdBooking.totalPrice}`;
+                        }}
+                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-3.5 rounded-xl transition-all shadow-md active:scale-95 flex items-center justify-center text-sm gap-2 cursor-pointer"
+                      >
+                        <Wallet className="w-4 h-4" /> Simulasikan Pembayaran
+                      </button>
                     </div>
                   );
                 }
@@ -2132,8 +2167,11 @@ export default function App() {
                       </div>
                       
                       <button
-                        onClick={() => { window.location.href = 'https://simulate.xendit.co/'; }}
-                        className="w-full mt-2 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-3.5 rounded-xl transition-all shadow-md active:scale-95 flex items-center justify-center text-sm gap-2"
+                        onClick={() => {
+                          const bookingCode = createdBooking.booking_code || createdBooking.bookingCode;
+                          window.location.href = `/simulate-checkout?booking=${bookingCode}&type=${payInfo.type}&channel=${payInfo.channelCode}&va=${payInfo.value}&amount=${createdBooking.total_price || createdBooking.totalPrice}`;
+                        }}
+                        className="w-full mt-2 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-3.5 rounded-xl transition-all shadow-md active:scale-95 flex items-center justify-center text-sm gap-2 cursor-pointer"
                       >
                         <Wallet className="w-4 h-4" /> Simulasikan Pembayaran
                       </button>
@@ -2200,6 +2238,16 @@ export default function App() {
                       </div>
 
                       {/* Nominal Utility Removed per user request */}
+                      
+                      <button
+                        onClick={() => {
+                          const bookingCode = createdBooking.booking_code || createdBooking.bookingCode;
+                          window.location.href = `/simulate-checkout?booking=${bookingCode}&type=${payInfo.type}&channel=${payInfo.channelCode}&va=${payInfo.value}&amount=${createdBooking.total_price || createdBooking.totalPrice}`;
+                        }}
+                        className="w-full max-w-sm bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-3.5 rounded-xl transition-all shadow-md active:scale-95 flex items-center justify-center text-sm gap-2 cursor-pointer"
+                      >
+                        <Wallet className="w-4 h-4" /> Simulasikan Pembayaran
+                      </button>
                     </div>
                   );
                 }
