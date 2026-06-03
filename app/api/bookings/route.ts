@@ -436,8 +436,12 @@ export async function POST(req: Request) {
             formattedPhone = '+' + formattedPhone;
           }
 
+          const host = req.headers.get("host") || "localhost:3000";
+          const protocol = host.includes("localhost") || host.includes("127.0.0.1") ? "http" : "https";
+          const baseUrl = `${protocol}://${host}`;
+
           const channelProps: any = {
-            success_return_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/payment-success?booking=${bookingCode}`
+            success_return_url: `${baseUrl}/payment-success?booking=${bookingCode}`
           };
 
           // OVO and Gopay work best when mobile_number is passed in channel_properties

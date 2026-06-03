@@ -788,19 +788,26 @@ export default function AdminPanel() {
           ) : (
             filteredBookings.map(bkg => {
               let rawStatus = (bkg.status || '').toLowerCase();
-              let displayStatus = rawStatus.toUpperCase();
+              let displayStatus = "Menunggu";
               let statusColor = "bg-orange-100 text-orange-700 border-orange-200";
               let StatusIcon = Clock;
               
               if (rawStatus === 'menunggu pembayaran' || rawStatus === 'menunggu') {
-                displayStatus = 'PENDING';
+                displayStatus = 'Menunggu';
               } else if (rawStatus === 'paid' || rawStatus === 'dikonfirmasi' || rawStatus === 'lunas') {
-                displayStatus = 'PAID';
+                displayStatus = 'Sukses';
                 statusColor = "bg-emerald-100 text-emerald-700 border-emerald-200"; 
                 StatusIcon = CheckCircle;
-              } else if (rawStatus === 'ditolak' || rawStatus === 'dibatalkan') {
+              } else if (rawStatus === 'dibatalkan') {
+                displayStatus = 'Dibatalkan';
                 statusColor = "bg-red-100 text-red-700 border-red-200"; 
                 StatusIcon = XCircle;
+              } else if (rawStatus === 'ditolak') {
+                displayStatus = 'Ditolak';
+                statusColor = "bg-red-100 text-red-700 border-red-200"; 
+                StatusIcon = XCircle;
+              } else {
+                displayStatus = rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1);
               }
 
               return (

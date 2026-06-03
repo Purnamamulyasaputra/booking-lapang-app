@@ -993,12 +993,12 @@ export default function App() {
                 let rawStatus = (bkg.status || '').toLowerCase();
                 let statusColor = "bg-orange-100 text-orange-800 border-orange-200";
                 let StatusIcon = Clock3;
-                let statusText = "PENDING";
+                let statusText = "Menunggu";
 
                 if (rawStatus === 'paid' || rawStatus === 'dikonfirmasi' || rawStatus === 'lunas') {
                   statusColor = "bg-emerald-100 text-emerald-800 border-emerald-200";
                   StatusIcon = CheckCircle;
-                  statusText = "PAID";
+                  statusText = "Sukses";
                 } else if (rawStatus === 'ditolak' || rawStatus === 'dibatalkan') {
                   statusColor = "bg-red-100 text-red-800 border-red-200";
                   StatusIcon = XOctagon;
@@ -2088,7 +2088,7 @@ export default function App() {
                           const simulationUrl = createdBooking?.xendit?.actions?.find((a: any) => a.action === 'AUTH' || a.action === 'MOBILE_WEB_CHECKOUT_URL' || a.action === 'DESKTOP_WEB_CHECKOUT_URL' || a.action === 'BROWSER_CHECKOUT_URL' || a.url_type === 'WEB')?.url || (payInfo.value?.startsWith('http') ? payInfo.value : null);
                           return simulationUrl ? (
                             <button
-                              onClick={() => window.open(simulationUrl, '_blank')}
+                              onClick={() => { window.location.href = simulationUrl; }}
                               className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-4 rounded-xl transition-all shadow-md active:scale-95 flex items-center justify-center text-sm gap-2 mt-2"
                             >
                               <Wallet className="w-4 h-4" /> Pay (Simulasi)
@@ -2132,7 +2132,7 @@ export default function App() {
                       </div>
                       
                       <button
-                        onClick={() => window.open('https://simulate.xendit.co/', '_blank')}
+                        onClick={() => { window.location.href = 'https://simulate.xendit.co/'; }}
                         className="w-full mt-2 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-3.5 rounded-xl transition-all shadow-md active:scale-95 flex items-center justify-center text-sm gap-2"
                       >
                         <Wallet className="w-4 h-4" /> Simulasikan Pembayaran
