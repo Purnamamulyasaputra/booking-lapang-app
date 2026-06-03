@@ -773,10 +773,11 @@ export default function AdminPanel() {
       <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
         {/* Desktop Table Header */}
         <div className="hidden md:grid grid-cols-12 gap-4 p-4 bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase tracking-wider">
-          <div className="col-span-3">Pelanggan</div>
+          <div className="col-span-2">Pelanggan</div>
           <div className="col-span-3">Jadwal Lapangan</div>
-          <div className="col-span-2">Total Biaya</div>
-          <div className="col-span-2">Status</div>
+          <div className="col-span-2">Biaya</div>
+          <div className="col-span-2">Metode</div>
+          <div className="col-span-1">Status</div>
           <div className="col-span-2 text-center">Aksi</div>
         </div>
 
@@ -786,19 +787,30 @@ export default function AdminPanel() {
             <div className="p-8 text-center text-gray-500">Tidak ada pesanan ditemukan.</div>
           ) : (
             filteredBookings.map(bkg => {
+              let rawStatus = (bkg.status || '').toLowerCase();
+              let displayStatus = rawStatus.toUpperCase();
               let statusColor = "bg-orange-100 text-orange-700 border-orange-200";
               let StatusIcon = Clock;
-              if (bkg.status === 'dikonfirmasi') { statusColor = "bg-emerald-100 text-emerald-700 border-emerald-200"; StatusIcon = CheckCircle; }
-              if (bkg.status === 'ditolak') { statusColor = "bg-red-100 text-red-700 border-red-200"; StatusIcon = XCircle; }
+              
+              if (rawStatus === 'menunggu pembayaran' || rawStatus === 'menunggu') {
+                displayStatus = 'PENDING';
+              } else if (rawStatus === 'paid' || rawStatus === 'dikonfirmasi' || rawStatus === 'lunas') {
+                displayStatus = 'PAID';
+                statusColor = "bg-emerald-100 text-emerald-700 border-emerald-200"; 
+                StatusIcon = CheckCircle;
+              } else if (rawStatus === 'ditolak' || rawStatus === 'dibatalkan') {
+                statusColor = "bg-red-100 text-red-700 border-red-200"; 
+                StatusIcon = XCircle;
+              }
 
               return (
                 <div key={bkg.id} className="p-3 md:p-0 md:grid grid-cols-12 gap-3 items-center md:px-3 md:py-2.5 hover:bg-gray-50/50 transition-colors border-b border-gray-50 last:border-0">
 
                   {/* Info Pelanggan */}
-                  <div className="col-span-3 mb-2 md:mb-0">
+                  <div className="col-span-2 mb-2 md:mb-0">
                     <div className="flex justify-between md:block mb-0.5">
                       <div className={`md:hidden flex items-center px-1.5 py-0.5 rounded-md border text-[9px] font-bold ${statusColor}`}>
-                        <StatusIcon className="w-2.5 h-2.5 mr-1" /> {bkg.status.toUpperCase()}
+                        <StatusIcon className="w-2.5 h-2.5 mr-1" /> {displayStatus}
                       </div>
                     </div>
                     <p className="font-bold text-gray-900 text-xs sm:text-sm truncate">{bkg.userName}</p>
@@ -820,31 +832,28 @@ export default function AdminPanel() {
                     <p className="font-extrabold text-emerald-600 text-xs sm:text-sm">Rp {bkg.price.toLocaleString('id-ID')}</p>
                   </div>
 
+                  {/* Metode */}
+                  <div className="col-span-2 mb-2 md:mb-0 flex justify-between md:block items-center">
+                    <span className="md:hidden text-[10px] font-medium text-gray-500">Metode:</span>
+                    <p className="font-bold text-gray-700 text-[11px] sm:text-xs bg-gray-100 px-2 py-1 rounded-md inline-block uppercase">{bkg.paymentMethod || 'Manual'}</p>
+                  </div>
+
                   {/* Status (Desktop) */}
-                  <div className="col-span-2 hidden md:flex">
-                    <div className={`inline-flex items-center px-2 py-0.5 rounded-md border text-[10px] font-bold ${statusColor}`}>
-                      <StatusIcon className="w-3 h-3 mr-1" />
-                      {bkg.status.charAt(0).toUpperCase() + bkg.status.slice(1)}
+                  <div className="col-span-1 hidden md:flex">
+                    <div className={`inline-flex items-center px-1.5 py-0.5 rounded-md border text-[9px] font-bold ${statusColor}`}>
+                      <StatusIcon className="w-3 h-3 mr-0.5" />
+                      {displayStatus}
                     </div>
                   </div>
 
                   {/* Action */}
                   <div className="col-span-2 md:text-center mt-1 md:mt-0">
-                    {bkg.status === 'menunggu' ? (
-                      <button
-                        onClick={() => setSelectedReceipt(bkg)}
-                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1.5 rounded-lg text-[10px] sm:text-xs font-bold shadow-sm flex items-center justify-center transition-colors"
-                      >
-                        <FileImage className="w-3.5 h-3.5 mr-1" /> Validasi Pembayaran
-                      </button>
-                    ) : (
                       <button
                         onClick={() => setSelectedReceipt(bkg)}
                         className="w-full bg-white border border-gray-200 hover:border-emerald-300 text-gray-700 hover:text-emerald-700 px-2.5 py-1.5 rounded-lg text-[10px] sm:text-xs font-bold transition-colors flex items-center justify-center shadow-sm"
                       >
                         <Search className="w-3.5 h-3.5 mr-1" /> Lihat Detail
                       </button>
-                    )}
                   </div>
 
                 </div>
@@ -969,7 +978,7 @@ export default function AdminPanel() {
     if (!selectedReceipt) return null;
 
     const receiptUrl = selectedReceipt.receiptImg;
-    const isXenditPayment = receiptUrl && (receiptUrl.startsWith('QR_STRING:') || receiptUrl.startsWith('CHECKOUT_URL:') || receiptUrl.startsWith('VA_NUMBER:'));
+    const isXenditPayment = receiptUrl && (receiptUrl.startsWith('QR_STRING:') || receiptUrl.startsWith('CHECKOUT_URL:') || receiptUrl.startsWith('VA_NUMBER:') || receiptUrl.startsWith('RETAIL_OUTLET:'));
     const isUploaded = receiptUrl && !isXenditPayment && !receiptUrl.includes('via.placeholder.com');
 
     return (
@@ -1105,42 +1114,28 @@ export default function AdminPanel() {
             </div>
           </div>
 
+
           {/* Footer Actions */}
           <div className="p-5 border-t border-gray-100 bg-gray-50 flex flex-col sm:flex-row gap-3">
-            {selectedReceipt.status === 'menunggu' ? (
+            {(selectedReceipt.status === 'menunggu' || selectedReceipt.status === 'menunggu pembayaran') ? (
               <>
                 <button
                   onClick={() => handleReject(selectedReceipt.id)}
                   className="flex-1 px-4 py-3 border-2 border-red-200 text-red-600 bg-white hover:bg-red-50 rounded-xl font-bold transition-colors flex items-center justify-center"
                 >
-                  <XCircle className="w-5 h-5 mr-2" /> Tolak Pesanan
+                  <XCircle className="w-5 h-5 mr-2" /> Batalkan Pesanan
                 </button>
                 <button
-                  onClick={() => handleApprove(selectedReceipt.id)}
-                  className="flex-[2] px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-lg shadow-emerald-600/20 transition-all flex items-center justify-center"
+                  onClick={() => setSelectedReceipt(null)}
+                  className="flex-1 px-4 py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-xl font-bold transition-all flex items-center justify-center"
                 >
-                  <CheckCircle className="w-5 h-5 mr-2" /> Konfirmasi Pembayaran
-                </button>
-              </>
-            ) : selectedReceipt.status === 'menunggu pembayaran' ? (
-              <>
-                <button
-                  onClick={() => handleReject(selectedReceipt.id)}
-                  className="flex-1 px-4 py-3 border-2 border-red-200 text-red-600 bg-white hover:bg-red-50 rounded-xl font-bold transition-colors flex items-center justify-center"
-                >
-                  <XCircle className="w-5 h-5 mr-2" /> Tolak Pesanan
-                </button>
-                <button
-                  onClick={() => handleApprove(selectedReceipt.id)}
-                  className="flex-[2] px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-lg shadow-emerald-600/20 transition-all flex items-center justify-center"
-                >
-                  <CheckCircle className="w-5 h-5 mr-2" /> Konfirmasi Pembayaran
+                  Tutup
                 </button>
               </>
             ) : (
               <button
                 onClick={() => setSelectedReceipt(null)}
-                className="w-full px-4 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl font-bold transition-colors"
+                className="w-full px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition-colors"
               >
                 Tutup
               </button>
@@ -1945,6 +1940,7 @@ export default function AdminPanel() {
                 <option value="Virtual Account">Virtual Account</option>
                 <option value="E-Wallet">E-Wallet</option>
                 <option value="QRIS">QRIS</option>
+                <option value="Gerai Retail">Gerai Retail (Alfamart/Indomaret)</option>
               </select>
             </div>
 
@@ -1969,6 +1965,16 @@ export default function AdminPanel() {
                   <option value="GoPay">GoPay</option>
                   <option value="ShopeePay">ShopeePay</option>
                   <option value="LinkAja">LinkAja</option>
+                </select>
+              ) : paymentFormData.type === 'Gerai Retail' ? (
+                <select
+                  value={paymentFormData.bankName}
+                  onChange={(e) => setPaymentFormData({ ...paymentFormData, bankName: e.target.value })}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-xl focus:ring-emerald-500 font-medium text-xs text-gray-900 bg-white"
+                >
+                  <option value="">Pilih Gerai</option>
+                  <option value="Alfamart">Alfamart</option>
+                  <option value="Indomaret">Indomaret</option>
                 </select>
               ) : (
                 <select

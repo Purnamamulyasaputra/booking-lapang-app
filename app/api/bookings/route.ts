@@ -212,7 +212,7 @@ async function sendWhatsAppNotification(
 
     // 6. Call Fonnte API
     const fonnteToken = process.env.FONNTE_TOKEN || "";
-    
+
     const formData = new FormData();
     formData.append("target", recipient);
     formData.append("message", message);
@@ -345,9 +345,10 @@ export async function POST(req: Request) {
       if (xenditApiKey && (paymentMethodName || paymentMethodId)) {
         const xenditAuth = Buffer.from(xenditApiKey + ':').toString('base64');
 
-        let isQRIS = paymentMethodName.includes('qris');
-        let isEwallet = paymentMethodName.includes('dana') || paymentMethodName.includes('ovo') || paymentMethodName.includes('gopay') || paymentMethodName.includes('shopee') || paymentMethodName.includes('linkaja');
-        let isVA = !isQRIS && !isEwallet;
+        let isQRIS = paymentMethodName.toLowerCase().includes('qris');
+        let isEwallet = !isQRIS && /dana|gopay|ovo|shopee|linkaja|ewallet/i.test(paymentMethodName);
+        let isOTC = !isQRIS && !isEwallet && /alfamart|indomaret|gerai retail|retail/i.test(paymentMethodName);
+        let isVA = !isQRIS && !isEwallet && !isOTC;
         let channel = "BRI";
 
         // Use DB Payment Method if paymentMethodId is provided
@@ -355,21 +356,32 @@ export async function POST(req: Request) {
           const pmCheck = await pool.query("SELECT * FROM payment_methods WHERE id = $1", [paymentMethodId]);
           if (pmCheck.rows.length > 0) {
             const dbPm = pmCheck.rows[0];
-            if (dbPm.type === 'VIRTUAL_ACCOUNT') {
+            if (dbPm.type === 'VIRTUAL_ACCOUNT' || dbPm.type === 'Virtual Account' || dbPm.type === 'Bank Transfer') {
               isVA = true;
               isEwallet = false;
               isQRIS = false;
+              isOTC = false;
               channel = dbPm.code.replace('_VA', '');
-            } else if (dbPm.type === 'EWALLET' || dbPm.type === 'E_WALLET') {
+            } else if (dbPm.type === 'EWALLET' || dbPm.type === 'E_WALLET' || dbPm.type === 'E-Wallet') {
               isEwallet = true;
               isVA = false;
               isQRIS = false;
+              isOTC = false;
               channel = dbPm.code.replace('_EWALLET', '').replace('EWALLET_', '').replace('_E_WALLET', '').replace('E_WALLET_', '');
             } else if (dbPm.type === 'QR_CODE' || dbPm.type === 'QRIS') {
               isQRIS = true;
               isVA = false;
               isEwallet = false;
+              isOTC = false;
               channel = "DANA"; // default QRIS channel in Xendit
+            } else if (dbPm.type === 'OVER_THE_COUNTER' || dbPm.type === 'Gerai Retail' || dbPm.type === 'RETAIL') {
+              isOTC = true;
+              isVA = false;
+              isEwallet = false;
+              isQRIS = false;
+              channel = dbPm.name.toUpperCase();
+              if (channel.includes('ALFA')) channel = 'ALFAMART';
+              else if (channel.includes('INDO')) channel = 'INDOMARET';
             }
           }
         } else {
@@ -383,6 +395,10 @@ export async function POST(req: Request) {
           else if (paymentMethodName.includes('muamalat')) channel = "MUAMALAT";
           else if (paymentMethodName.includes('sahabat_sampoerna')) channel = "SAHABAT_SAMPOERNA";
           else if (paymentMethodName.includes('permata')) channel = "PERMATA";
+          else if (isOTC) {
+            if (paymentMethodName.toLowerCase().includes('indo')) channel = "INDOMARET";
+            else channel = "ALFAMART";
+          }
         }
 
         let xenditPayload: any = {
@@ -454,6 +470,22 @@ export async function POST(req: Request) {
               }
             }
           };
+        } else if (isOTC) {
+          // Get customer name for OTC
+          const custCheck = await pool.query("SELECT name FROM customers WHERE id = $1", [resolvedCustomerId]);
+          const custName = custCheck.rows.length > 0 ? custCheck.rows[0].name : "Booking Customer";
+
+          xenditPayload.payment_method = {
+            type: "OVER_THE_COUNTER",
+            reusability: "ONE_TIME_USE",
+            reference_id: `pm-otc-${bookingCode}-${Date.now()}`,
+            over_the_counter: {
+              channel_code: channel,
+              channel_properties: {
+                customer_name: custName
+              }
+            }
+          };
         }
 
         const xenditRes = await fetch("https://api.xendit.co/payment_requests", {
@@ -467,24 +499,24 @@ export async function POST(req: Request) {
 
         if (xenditRes.ok) {
           xenditResponseData = await xenditRes.json();
-          
+
           let qrStringOrUrl = "";
           let receiptImgToSave = "";
-          
+
           // For eWallet (GOPAY, OVO, DANA etc) - get checkout URL or QR from actions
           if (xenditResponseData.actions && xenditResponseData.actions.length > 0) {
             // Priority: QR checkout string > mobile deeplink > web checkout
-            const qrAction = xenditResponseData.actions.find((a: any) => 
+            const qrAction = xenditResponseData.actions.find((a: any) =>
               a.action === 'QR_CHECKOUT_STRING' || a.url_type === 'QR_CODE'
             );
-            const deeplinkAction = xenditResponseData.actions.find((a: any) => 
+            const deeplinkAction = xenditResponseData.actions.find((a: any) =>
               a.action === 'MOBILE_DEEPLINK_CHECKOUT_URL' || a.url_type === 'DEEPLINK'
             );
-            const webAction = xenditResponseData.actions.find((a: any) => 
-              a.action === 'MOBILE_WEB_CHECKOUT_URL' || a.action === 'DESKTOP_WEB_CHECKOUT_URL' || 
+            const webAction = xenditResponseData.actions.find((a: any) =>
+              a.action === 'MOBILE_WEB_CHECKOUT_URL' || a.action === 'DESKTOP_WEB_CHECKOUT_URL' ||
               a.action === 'BROWSER_CHECKOUT_URL' || a.url_type === 'WEB'
             );
-            
+
             if (qrAction) qrStringOrUrl = qrAction.url || qrAction.qr_code || "";
             else if (deeplinkAction) qrStringOrUrl = deeplinkAction.url || "";
             else if (webAction) qrStringOrUrl = webAction.url || "";
@@ -510,6 +542,9 @@ export async function POST(req: Request) {
           if (isVA && xenditResponseData.payment_method?.virtual_account?.channel_properties?.virtual_account_number) {
             paymentDetailsOverride = xenditResponseData.payment_method.virtual_account.channel_properties.virtual_account_number;
             receiptImgToSave = `VA_NUMBER:${paymentMethodName}:${paymentDetailsOverride}`;
+          } else if (isOTC && xenditResponseData.payment_method?.over_the_counter?.channel_properties?.payment_code) {
+            paymentDetailsOverride = xenditResponseData.payment_method.over_the_counter.channel_properties.payment_code;
+            receiptImgToSave = `RETAIL_OUTLET:${channelCodeUpper}:${paymentDetailsOverride}`;
           } else if (isEwallet && qrStringOrUrl) {
             paymentDetailsOverride = `Silakan selesaikan pembayaran melalui link berikut: ${qrStringOrUrl}`;
             receiptImgToSave = `CHECKOUT_URL:${qrStringOrUrl}`;
@@ -526,14 +561,15 @@ export async function POST(req: Request) {
             receiptImgToSave = `QR_STRING:${qrStringOrUrl}`;
           }
 
+          const xenditId = xenditResponseData?.id || null;
           if (receiptImgToSave) {
-            await pool.query("UPDATE bookings SET status = 'MENUNGGU PEMBAYARAN', receipt_img = $1 WHERE id = $2", [receiptImgToSave, booking.id]);
+            await pool.query("UPDATE bookings SET status = 'MENUNGGU PEMBAYARAN', receipt_img = $1, xendit_id = $2 WHERE id = $3", [receiptImgToSave, xenditId, booking.id]);
             booking.receipt_img = receiptImgToSave;
           } else {
-            await pool.query("UPDATE bookings SET status = 'MENUNGGU PEMBAYARAN' WHERE id = $1", [booking.id]);
+            await pool.query("UPDATE bookings SET status = 'MENUNGGU PEMBAYARAN', xendit_id = $1 WHERE id = $2", [xenditId, booking.id]);
           }
           booking.status = 'MENUNGGU PEMBAYARAN';
-          
+
           // Log payment
           await pool.query(
             "INSERT INTO payment_logs (booking_id, invoice_code, amount, status, log_message) VALUES ($1, $2, $3, $4, $5)",
@@ -678,7 +714,7 @@ export async function DELETE(req: Request) {
 
     // Update payment log if exists
     await pool.query(
-      "UPDATE payment_logs SET status = 'FAILED', log_message = 'Booking dibatalkan' WHERE booking_id = $1", 
+      "UPDATE payment_logs SET status = 'FAILED', log_message = 'Booking dibatalkan' WHERE booking_id = $1",
       [id]
     );
 

@@ -10,14 +10,15 @@ import { useSession, signIn, signOut } from 'next-auth/react';
 
 
 import QRCode from 'react-qr-code';
+import Barcode from 'react-barcode';
 
 // Helper function to extract payment details in a unified, robust way
 const getPaymentInfo = (booking: any) => {
   if (!booking) return null;
-  
+
   // 1. Try to extract from receipt_img / receiptImg (stored in DB)
   const receiptVal = booking.receipt_img || booking.receiptImg || "";
-  
+
   if (receiptVal.startsWith('QR_STRING:')) {
     return {
       type: 'QR_CODE',
@@ -26,7 +27,7 @@ const getPaymentInfo = (booking: any) => {
       title: 'Scan QRIS'
     };
   }
-  
+
   if (receiptVal.startsWith('CHECKOUT_URL:')) {
     const val = receiptVal.replace('CHECKOUT_URL:', '');
     return {
@@ -36,7 +37,7 @@ const getPaymentInfo = (booking: any) => {
       title: 'Kode Pembayaran E-Wallet'
     };
   }
-  
+
   if (receiptVal.startsWith('VA_NUMBER:')) {
     const parts = receiptVal.split(':');
     return {
@@ -46,7 +47,17 @@ const getPaymentInfo = (booking: any) => {
       title: `Virtual Account ${parts[1]?.toUpperCase() || ''}`
     };
   }
-  
+
+  if (receiptVal.startsWith('RETAIL_OUTLET:')) {
+    const parts = receiptVal.split(':');
+    return {
+      type: 'OVER_THE_COUNTER',
+      value: parts[2] || '',
+      channelCode: parts[1]?.toUpperCase() || 'Gerai Retail',
+      title: `Kode Bayar ${parts[1]?.toUpperCase() || 'Gerai Retail'}`
+    };
+  }
+
   // 2. Fallback to Xendit object if available
   const xenditType = booking?.xendit?.payment_method?.type;
   if (xenditType) {
@@ -64,9 +75,9 @@ const getPaymentInfo = (booking: any) => {
       const qrAction = actions.find((a: any) => a.action === 'QR_CHECKOUT_STRING' || a.url_type === 'QR_CODE');
       const deeplinkAction = actions.find((a: any) => a.action === 'MOBILE_DEEPLINK_CHECKOUT_URL' || a.url_type === 'DEEPLINK');
       const webAction = actions.find((a: any) => a.action === 'MOBILE_WEB_CHECKOUT_URL' || a.action === 'DESKTOP_WEB_CHECKOUT_URL' || a.action === 'BROWSER_CHECKOUT_URL' || a.url_type === 'WEB');
-      
+
       const val = qrAction?.url || ewalletProps.qr_checkout_string || deeplinkAction?.url || webAction?.url || ewalletProps.mobile_deeplink_checkout_url || ewalletProps.desktop_web_checkout_url || '';
-      
+
       return {
         type: 'EWALLET',
         value: val,
@@ -82,6 +93,14 @@ const getPaymentInfo = (booking: any) => {
         title: `Virtual Account ${booking?.xendit?.payment_method?.virtual_account?.channel_code || ''}`
       };
     }
+    if (xenditType === 'OVER_THE_COUNTER') {
+      return {
+        type: 'OVER_THE_COUNTER',
+        value: booking?.xendit?.payment_method?.over_the_counter?.channel_properties?.payment_code || '',
+        channelCode: booking?.xendit?.payment_method?.over_the_counter?.channel_code || 'RETAIL',
+        title: `Kode Bayar ${booking?.xendit?.payment_method?.over_the_counter?.channel_code || 'Gerai Retail'}`
+      };
+    }
   }
 
   // 3. Fallback heuristic based on paymentMethodCode
@@ -93,9 +112,12 @@ const getPaymentInfo = (booking: any) => {
     if (['dana', 'ovo', 'gopay', 'shopeepay', 'linkaja'].some(c => pmCode.includes(c))) {
       return { type: 'EWALLET', value: '', channelCode: pmCode.toUpperCase(), title: `Scan Barcode ${pmCode.toUpperCase()}` };
     }
+    if (['alfamart', 'indomaret'].some(c => pmCode.includes(c))) {
+      return { type: 'OVER_THE_COUNTER', value: '', channelCode: pmCode.toUpperCase(), title: `Kode Bayar ${pmCode.toUpperCase()}` };
+    }
     return { type: 'VIRTUAL_ACCOUNT', value: '', channelCode: pmCode.toUpperCase(), title: `Virtual Account ${pmCode.toUpperCase()}` };
   }
-  
+
   return null;
 };
 
@@ -380,19 +402,19 @@ export default function App() {
 
       if (!uploadRes.ok) throw new Error("Gagal upload file");
       const uploadData = await uploadRes.json();
-      
+
       const res = await fetch('/api/bookings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          id: paymentPopup.booking.id, 
-          receiptImg: uploadData.url, 
-          status: 'MENUNGGU' 
+        body: JSON.stringify({
+          id: paymentPopup.booking.id,
+          receiptImg: uploadData.url,
+          status: 'MENUNGGU'
         })
       });
-      
+
       if (!res.ok) throw new Error("Gagal update status");
-      
+
       showToast("Bukti pembayaran berhasil dikirim", "success");
       setPaymentPopup({ isOpen: false, type: '', value: '', title: '', booking: null });
       setPopupReceiptFile(null);
@@ -968,18 +990,19 @@ export default function App() {
           <>
             <div className="space-y-3">
               {paginatedMyBookings.map((bkg, index) => {
-                let statusColor = "bg-yellow-100 text-yellow-800 border-yellow-200";
+                let rawStatus = (bkg.status || '').toLowerCase();
+                let statusColor = "bg-orange-100 text-orange-800 border-orange-200";
                 let StatusIcon = Clock3;
-                let statusText = "Menunggu Konfirmasi";
+                let statusText = "PENDING";
 
-                if (bkg.status === 'dikonfirmasi') {
+                if (rawStatus === 'paid' || rawStatus === 'dikonfirmasi' || rawStatus === 'lunas') {
                   statusColor = "bg-emerald-100 text-emerald-800 border-emerald-200";
                   StatusIcon = CheckCircle;
-                  statusText = "Pesanan Dikonfirmasi";
-                } else if (bkg.status === 'ditolak' || bkg.status === 'dibatalkan') {
+                  statusText = "PAID";
+                } else if (rawStatus === 'ditolak' || rawStatus === 'dibatalkan') {
                   statusColor = "bg-red-100 text-red-800 border-red-200";
                   StatusIcon = XOctagon;
-                  statusText = bkg.status === 'dibatalkan' ? "Pesanan Dibatalkan" : "Pesanan Ditolak";
+                  statusText = rawStatus === 'dibatalkan' ? "Dibatalkan" : "Ditolak";
                 }
 
                 return (
@@ -1003,7 +1026,7 @@ export default function App() {
                       {/* Action Buttons Container */}
                       <div className="mt-3 flex flex-wrap gap-2">
                         {/* Tombol Lihat Kode Pembayaran */}
-                        {bkg.receiptImg && (bkg.receiptImg.startsWith('QR_STRING:') || bkg.receiptImg.startsWith('CHECKOUT_URL:') || bkg.receiptImg.startsWith('VA_NUMBER:')) && (bkg.status === 'menunggu pembayaran' || bkg.status === 'menunggu') && (
+                        {bkg.receiptImg && (bkg.receiptImg.startsWith('QR_STRING:') || bkg.receiptImg.startsWith('CHECKOUT_URL:') || bkg.receiptImg.startsWith('VA_NUMBER:') || bkg.receiptImg.startsWith('RETAIL_OUTLET:')) && (bkg.status === 'menunggu pembayaran' || bkg.status === 'menunggu' || bkg.status === 'pending') && (
                           <button
                             onClick={() => {
                               if (bkg.receiptImg.startsWith('QR_STRING:')) {
@@ -1013,6 +1036,9 @@ export default function App() {
                               } else if (bkg.receiptImg.startsWith('VA_NUMBER:')) {
                                 const parts = bkg.receiptImg.split(':');
                                 setPaymentPopup({ isOpen: true, type: 'va', value: parts[2], title: `Virtual Account ${parts[1]?.toUpperCase() || ''}`, booking: bkg });
+                              } else if (bkg.receiptImg.startsWith('RETAIL_OUTLET:')) {
+                                const parts = bkg.receiptImg.split(':');
+                                setPaymentPopup({ isOpen: true, type: 'retail', value: parts[2], channelCode: parts[1]?.toUpperCase(), title: `Pembayaran ${parts[1]?.toUpperCase() || ''}`, booking: bkg });
                               }
                             }}
                             className="inline-flex items-center justify-center px-3 py-1.5 border border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg text-[10px] sm:text-xs font-bold transition-colors shadow-sm w-full sm:w-auto"
@@ -1529,8 +1555,9 @@ export default function App() {
         else badgeText = badgeText.split(' ')[0] || 'TRANSFER';
 
         const isEwallet = /dana|gopay|ovo|shopee|linkaja|qris/i.test(pm.bankName);
-        const methodType = isEwallet ? 'E-WALLET' : 'TRANSFER MANUAL';
-        const instructionPrefix = isEwallet ? (badgeText === 'QRIS' ? 'Pembayaran' : 'Transfer DANA/E-Wallet') : 'Transfer Manual';
+        const isOTC = /alfamart|indomaret|gerai retail/i.test(pm.bankName);
+        const methodType = isEwallet ? 'E-WALLET' : (isOTC ? 'GERAI RETAIL' : 'TRANSFER MANUAL');
+        const instructionPrefix = isEwallet ? (badgeText === 'QRIS' ? 'Pembayaran' : 'Transfer DANA/E-Wallet') : (isOTC ? 'Pembayaran via' : 'Transfer Manual');
 
         let dbInstructions = [];
         if (paymentInstructions && paymentInstructions.length > 0) {
@@ -1549,7 +1576,7 @@ export default function App() {
         let assignedNumber = pm.isQris ? pm.bankAccount : (isEwallet ? dummyEwallets[lowerBadgeForDummy] : dummyAccounts[lowerBadgeForDummy]);
         if (!assignedNumber) assignedNumber = pm.bankAccount || (isEwallet ? '081234567890' : '1234567890');
 
-        const forcedOwnerName = pm.isQris ? 'Pembayaran Instan' : 'Yayasan Budi Mandiri';
+        const forcedOwnerName = pm.isQris ? 'Pembayaran Instan' : (isOTC ? (user?.name || 'Customer') : 'Yayasan Budi Mandiri');
 
         accountMap[pmKey] = {
           badge: badgeText,
@@ -1559,7 +1586,13 @@ export default function App() {
           name: forcedOwnerName,
           instructionTitle: `Instruksi ${instructionPrefix} ${badgeText}`,
           dbInstructions: dbInstructions,
-          instructions: [
+          instructions: isOTC ? [
+            `Datangi gerai ${pm.bankName || 'Retail'} terdekat.`,
+            `Sampaikan ke kasir untuk membayar merchant Xendit / ${pm.bankName}.`,
+            `Tunjukkan barcode atau kode pembayaran kepada kasir.`,
+            `Atas Nama: ${user?.name || 'Booking Customer'}.`,
+            `Bayar sesuai dengan nominal tagihan yang disebutkan oleh kasir dan simpan struk sebagai bukti pembayaran.`
+          ] : [
             'Transfer sesuai nominal (hingga 3 digit terakhir) ke rekening berikut:',
             `${pm.bankName || 'Bank'}: ${pm.bankAccount || '-'}`,
             `Atas Nama: ${pmOwner}`,
@@ -1655,6 +1688,7 @@ export default function App() {
                 const vaMethods = [];
                 const ewalletMethods = [];
                 const qrisMethods = [];
+                const otcMethods = [];
 
                 let renderFieldPMs = (selectedField.paymentMethods || []).filter((pm: any) => pm.isActive !== false);
 
@@ -1676,10 +1710,12 @@ export default function App() {
 
                   if (pm.isQris || n.includes('qris')) {
                     qrisMethods.push(item);
+                  } else if (n.includes('alfamart') || n.includes('indomaret')) {
+                    otcMethods.push(item);
                   } else if (n.includes('dana') || n.includes('gopay') || n.includes('ovo') || n.includes('shopee') || n.includes('linkaja') || n.includes('e-wallet')) {
                     ewalletMethods.push(item);
                   } else {
-                    // Semua yang tidak teridentifikasi sebagai QRIS atau E-Wallet dianggap sebagai Bank Transfer / Virtual Account
+                    // Semua yang tidak teridentifikasi dianggap sebagai Bank Transfer / Virtual Account
                     vaMethods.push(item);
                   }
                 });
@@ -1691,7 +1727,7 @@ export default function App() {
 
                   if (isCurrentlyExpanded) {
                     // Collapse and deselect
-                    setExpandedPaymentGroups({ 'Bank Transfer': false, 'E-Wallet': false, 'QR Code': false });
+                    setExpandedPaymentGroups({ 'Bank Transfer': false, 'E-Wallet': false, 'QR Code': false, 'Over The Counter': false });
                     if (items.some(pm => pm.key === selectedPaymentMethod)) {
                       setSelectedPaymentMethod(''); // Deselect if an item in this group was selected
                     }
@@ -1699,12 +1735,12 @@ export default function App() {
                     setSearchBankQuery('');
                   } else {
                     // Expand
-                    const newExpanded = { 'Bank Transfer': false, 'E-Wallet': false, 'QR Code': false };
+                    const newExpanded = { 'Bank Transfer': false, 'E-Wallet': false, 'QR Code': false, 'Over The Counter': false };
                     newExpanded[title] = true;
                     setExpandedPaymentGroups(newExpanded);
                     setSearchBankQuery(''); // Reset search
 
-                    if (title === 'QR Code' && items.length === 1) {
+                    if ((title === 'QR Code' || title === 'Over The Counter') && items.length === 1) {
                       setSelectedPaymentMethod(items[0].key);
                     }
                   }
@@ -1826,6 +1862,8 @@ export default function App() {
                                       else if (n.includes('shopee')) logo = 'https://upload.wikimedia.org/wikipedia/commons/f/fe/Shopee.svg';
                                       else if (n.includes('bsi')) logo = 'https://upload.wikimedia.org/wikipedia/commons/a/a0/Bank_Syariah_Indonesia.svg';
                                       else if (n.includes('qris')) logo = 'https://upload.wikimedia.org/wikipedia/commons/a/a2/Logo_QRIS.svg';
+                                      else if (n.includes('alfamart')) logo = 'https://upload.wikimedia.org/wikipedia/commons/9/9e/ALFAMART_LOGO_BARU.png';
+                                      else if (n.includes('indomaret')) logo = 'https://upload.wikimedia.org/wikipedia/id/0/04/Logo_Indomaret.png';
                                     }
 
                                     return (
@@ -1861,9 +1899,10 @@ export default function App() {
 
                 return (
                   <div className="border border-gray-200 rounded-2xl bg-white shadow-sm">
-                    {renderGroup("Bank Transfer", vaMethods)}
                     {renderGroup("E-Wallet", ewalletMethods)}
                     {renderGroup("QR Code", qrisMethods)}
+                    {renderGroup("Over The Counter", otcMethods)}
+                    {renderGroup("Bank Transfer", vaMethods)}
                   </div>
                 );
               })()}
@@ -1898,13 +1937,7 @@ export default function App() {
         <div className="flex items-center justify-between mb-4 sm:mb-6 bg-white p-3 sm:p-4 rounded-2xl border border-gray-100 shadow-sm gap-2">
           <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
             <button
-              onClick={() => {
-                if (!uploadedReceipt) {
-                  showToast('Anda harus upload bukti pembayaran dulu!', 'error');
-                } else {
-                  setCheckoutStep('select_method');
-                }
-              }}
+              onClick={() => setCurrentView('home')}
               className="p-2 bg-slate-50 hover:bg-slate-100 rounded-full border border-gray-200 text-gray-600 transition-colors flex-shrink-0"
             >
               <ArrowLeft className="w-4 h-4 sm:w-5 h-5" />
@@ -1961,6 +1994,8 @@ export default function App() {
                       else if (n.includes('shopee')) logo = 'https://upload.wikimedia.org/wikipedia/commons/f/fe/Shopee.svg';
                       else if (n.includes('bsi')) logo = 'https://upload.wikimedia.org/wikipedia/commons/a/a0/Bank_Syariah_Indonesia.svg';
                       else if (n.includes('qris')) logo = 'https://upload.wikimedia.org/wikipedia/commons/a/a2/Logo_QRIS.svg';
+                      else if (n.includes('alfamart')) logo = 'https://upload.wikimedia.org/wikipedia/commons/8/86/Alfamart_logo.svg';
+                      else if (n.includes('indomaret')) logo = 'https://upload.wikimedia.org/wikipedia/commons/9/9d/Logo_Indomaret.png';
                     }
 
                     return logo ? (
@@ -2049,14 +2084,17 @@ export default function App() {
                           </div>
                         )}
 
-                        {payInfo.value && payInfo.value.startsWith('http') && (
-                          <button
-                            onClick={() => window.open(payInfo.value, '_blank')}
-                            className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold py-4 rounded-xl transition-all shadow-md active:scale-95 flex items-center justify-center text-sm gap-2"
-                          >
-                            <Wallet className="w-4 h-4" /> Buka Aplikasi {payInfo.channelCode}
-                          </button>
-                        )}
+                        {(() => {
+                          const simulationUrl = createdBooking?.xendit?.actions?.find((a: any) => a.action === 'AUTH' || a.action === 'MOBILE_WEB_CHECKOUT_URL' || a.action === 'DESKTOP_WEB_CHECKOUT_URL' || a.action === 'BROWSER_CHECKOUT_URL' || a.url_type === 'WEB')?.url || (payInfo.value?.startsWith('http') ? payInfo.value : null);
+                          return simulationUrl ? (
+                            <button
+                              onClick={() => window.open(simulationUrl, '_blank')}
+                              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-4 rounded-xl transition-all shadow-md active:scale-95 flex items-center justify-center text-sm gap-2 mt-2"
+                            >
+                              <Wallet className="w-4 h-4" /> Pay (Simulasi)
+                            </button>
+                          ) : null;
+                        })()}
                       </div>
                     </div>
                   );
@@ -2092,57 +2130,86 @@ export default function App() {
                           {copiedBCA ? 'Tersalin' : 'Salin'}
                         </button>
                       </div>
+                      
+                      <button
+                        onClick={() => window.open('https://simulate.xendit.co/', '_blank')}
+                        className="w-full mt-2 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-3.5 rounded-xl transition-all shadow-md active:scale-95 flex items-center justify-center text-sm gap-2"
+                      >
+                        <Wallet className="w-4 h-4" /> Simulasikan Pembayaran
+                      </button>
+                    </div>
+                  );
+                }
+
+                if (payInfo.type === 'OVER_THE_COUNTER') {
+                  const channelCode = (payInfo.channelCode || '').toLowerCase();
+                  const matchedDbPm = dbPaymentMethods?.find((pm: any) => (pm.code || '').toLowerCase() === channelCode);
+                  const isAlfamart = channelCode === 'alfamart';
+                  const isIndomaret = channelCode === 'indomaret';
+                  const logoUrl = matchedDbPm?.logo_url || (isAlfamart ? 'https://upload.wikimedia.org/wikipedia/commons/9/9e/ALFAMART_LOGO_BARU.png' : isIndomaret ? 'https://upload.wikimedia.org/wikipedia/id/0/04/Logo_Indomaret.png' : null);
+
+                  return (
+                    <div className="w-full flex flex-col gap-6 items-center bg-white py-6 px-4">
+
+                      {/* The Emerald Card Container */}
+                      <div className="w-full max-w-sm rounded-[24px] overflow-hidden bg-emerald-600 pt-2 pb-[3px] px-[3px]">
+                        {/* Header */}
+                        <div className="bg-emerald-600 pb-3 px-4 text-center">
+                          <span className="font-bold text-white text-[14px]">Show this barcode to the cashier</span>
+                        </div>
+
+                        {/* White Body containing Barcode */}
+                        <div className="bg-white rounded-[20px] p-6 pb-5 flex flex-col items-center">
+                          <div id="retail-barcode-checkout" className="w-full bg-white flex justify-center mb-1">
+                            <Barcode value={payInfo.value} width={2} height={80} displayValue={false} background="transparent" />
+                          </div>
+                          <span className="font-mono text-[19px] font-black tracking-widest text-black truncate mb-6">{payInfo.value}</span>
+
+                          {/* Download Button */}
+                          <button
+                            onClick={() => {
+                              const svg = document.querySelector('#retail-barcode-checkout svg');
+                              if (svg) {
+                                const svgData = new XMLSerializer().serializeToString(svg);
+                                const canvas = document.createElement('canvas');
+                                const ctx = canvas.getContext('2d');
+                                const img = new Image();
+                                img.onload = () => {
+                                  canvas.width = img.width + 40;
+                                  canvas.height = img.height + 40;
+                                  if (ctx) {
+                                    ctx.fillStyle = '#FFFFFF';
+                                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                                    ctx.drawImage(img, 20, 20);
+                                  }
+                                  const pngFile = canvas.toDataURL('image/png');
+                                  const downloadLink = document.createElement('a');
+                                  downloadLink.download = 'barcode.png';
+                                  downloadLink.href = pngFile;
+                                  downloadLink.click();
+                                  showToast('Barcode berhasil diunduh');
+                                };
+                                img.src = 'data:image/svg+xml;base64,' + btoa(svgData);
+                              }
+                            }}
+                            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-[14px] transition-all active:scale-95 text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm border border-transparent cursor-pointer"
+                          >
+                            <Download className="w-[18px] h-[18px]" /> Download Barcode
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Nominal Utility Removed per user request */}
                     </div>
                   );
                 }
 
                 return null;
+
               })()}
             </div>
 
-            {/* Konfirmasi Pembayaran Section */}
-            <div className="w-full border-t border-gray-100 pt-4">
-              <h3 className="font-extrabold text-gray-800 text-sm sm:text-base mb-1 flex items-center gap-2">
-                <Upload className="w-4 h-4 text-emerald-500" /> Konfirmasi Pembayaran
-              </h3>
-              <p className="text-xs text-gray-500 leading-relaxed mb-3">
-                Silakan unggah foto bukti transfer ATM, Mobile Banking, atau Internet Banking Anda di bawah ini:
-              </p>
-
-              <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept="image/*" />
-              <div
-                onClick={() => !uploadedReceipt && fileInputRef.current.click()}
-                className={`border-2 border-dashed rounded-2xl p-4 sm:p-5 text-center transition-all ${uploadedReceipt
-                  ? 'border-emerald-500 bg-emerald-50/50'
-                  : 'border-emerald-100 bg-slate-50 hover:bg-emerald-50/20 cursor-pointer'
-                  }`}
-              >
-                {uploadedReceipt ? (
-                  <div className="flex flex-col items-center">
-                    {receiptPreviewUrl ? (
-                      <div className="relative mb-2 cursor-pointer group rounded-xl shadow-sm border border-emerald-200 overflow-hidden" onClick={(e) => { e.stopPropagation(); setIsPreviewModalOpen(true); }}>
-                        <img src={receiptPreviewUrl} alt="Preview" className="h-20 w-20 object-cover group-hover:scale-105 transition-transform" />
-                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
-                          <Search className="w-5 h-5 text-white" />
-                        </div>
-                      </div>
-                    ) : (
-                      <CheckCircle2 className="h-8 w-8 text-emerald-500 mb-1.5" />
-                    )}
-                    <p className="font-bold text-emerald-900 text-xs sm:text-sm">Bukti Terupload</p>
-                    <p className="text-[10px] sm:text-xs text-emerald-700 mt-0.5 truncate max-w-[200px]">{uploadedFileName}</p>
-                    <button onClick={(e) => { e.stopPropagation(); setUploadedReceipt(false); setReceiptPreviewUrl(''); }} className="mt-2 text-[10px] text-red-500 font-bold bg-red-50 px-2.5 py-1 rounded-full hover:bg-red-100 cursor-pointer">Ganti File</button>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center py-1">
-                    <ImageIcon className="h-8 w-8 text-slate-400 mb-2" />
-                    <p className="font-bold text-gray-700 text-xs sm:text-sm">Pilih Foto Bukti</p>
-                    <p className="text-[9px] text-gray-400 font-medium mt-0.5">JPG, PNG, atau WEBP</p>
-                  </div>
-                )}
-              </div>
             </div>
-          </div>
 
           {/* Instruksi Card - Emerald themed */}
           <div className="space-y-6">
@@ -2173,6 +2240,7 @@ export default function App() {
                     <div dangerouslySetInnerHTML={{
                       __html: (currentAccount.dbInstructions[instructionTab]?.content || '')
                         .replace(/contoh:\s*\d+/gi, createdBooking?.xendit?.payment_method?.virtual_account?.channel_properties?.virtual_account_number ? `contoh: <span class="font-mono font-extrabold text-emerald-600">${createdBooking.xendit.payment_method.virtual_account.channel_properties.virtual_account_number}</span>` : '$&')
+                        .replace(/\{\{user_name\}\}/g, user?.name || 'Booking Customer')
                         .replace(/<ol>/g, '<ol class="list-decimal pl-5 space-y-3 text-[13px] sm:text-sm text-gray-700 font-medium leading-relaxed">')
                         .replace(/<ul>/g, '<ul class="list-disc pl-5 space-y-3 text-[13px] sm:text-sm text-gray-700 font-medium leading-relaxed">')
                         .replace(/<li>/g, '<li class="pl-1">')
@@ -2197,7 +2265,7 @@ export default function App() {
                             </li>
                           );
                         }
-                        if (ins.includes('nominal')) {
+                        if (ins.startsWith('Transfer sesuai nominal')) {
                           return (
                             <li key={i}>
                               Transfer sesuai nominal <span className="text-blue-600 font-extrabold">(hingga 3 digit terakhir)</span> ke rekening berikut:
@@ -2211,37 +2279,11 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Kirim Bukti Pembayaran Button */}
-              <button
-                onClick={submitCheckout}
-                disabled={!uploadedReceipt || isSubmittingReceipt}
-                className={`w-full mt-6 py-4 rounded-xl font-extrabold text-white text-base transition-all shadow-md flex items-center justify-center gap-2 ${uploadedReceipt && !isSubmittingReceipt
-                  ? 'bg-emerald-600 hover:bg-emerald-700 active:scale-95 cursor-pointer shadow-emerald-600/20'
-                  : 'bg-gray-300 shadow-none cursor-not-allowed text-gray-400'
-                  }`}
-              >
-                {isSubmittingReceipt ? (
-                  <>
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    Mengirim Bukti...
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="w-5 h-5" />
-                    Kirim Bukti Pembayaran
-                  </>
-                )}
-              </button>
+
 
               {/* Kembali ke Beranda Button */}
               <button
-                onClick={() => {
-                  if (!uploadedReceipt) {
-                    showToast('Anda harus upload bukti pembayaran dulu!', 'error');
-                  } else {
-                    setCurrentView('home');
-                  }
-                }}
+                onClick={() => setCurrentView('home')}
                 className="w-full mt-3 bg-slate-50 hover:bg-slate-100 text-slate-600 font-bold py-3.5 rounded-xl text-sm transition-colors border border-slate-200 cursor-pointer"
               >
                 Kembali ke Beranda
@@ -2461,6 +2503,63 @@ export default function App() {
                     )}
                   </div>
                 </div>
+              ) : paymentPopup.type === 'OVER_THE_COUNTER' ? (
+                (() => {
+                  const channelCode = (paymentPopup.channelCode || '').toLowerCase();
+                  const matchedDbPm = dbPaymentMethods?.find((pm: any) => (pm.code || '').toLowerCase() === channelCode);
+                  const isAlfamart = channelCode === 'alfamart';
+                  const isIndomaret = channelCode === 'indomaret';
+                  const logoUrl = matchedDbPm?.logo_url || (isAlfamart ? 'https://upload.wikimedia.org/wikipedia/commons/9/9e/ALFAMART_LOGO_BARU.png' : isIndomaret ? 'https://upload.wikimedia.org/wikipedia/id/0/04/Logo_Indomaret.png' : null);
+
+                  return (
+                    <div className="w-full flex flex-col gap-6 items-center bg-white py-2 px-2">
+
+                      <div className="w-full max-w-sm rounded-[24px] overflow-hidden bg-emerald-600 pt-2 pb-[3px] px-[3px]">
+                        <div className="bg-emerald-600 pb-3 px-4 text-center">
+                          <span className="font-bold text-white text-[14px]">Show this barcode to the cashier</span>
+                        </div>
+
+                        <div className="bg-white rounded-[20px] p-6 pb-5 flex flex-col items-center">
+                          <div id="retail-barcode-popup" className="w-full bg-white flex justify-center mb-1">
+                            <Barcode value={paymentPopup.value} width={2} height={80} displayValue={false} background="transparent" />
+                          </div>
+                          <span className="font-mono text-[19px] font-black tracking-widest text-black truncate mb-6">{paymentPopup.value}</span>
+
+                          <button
+                            onClick={() => {
+                              const svg = document.querySelector('#retail-barcode-popup svg');
+                              if (svg) {
+                                const svgData = new XMLSerializer().serializeToString(svg);
+                                const canvas = document.createElement('canvas');
+                                const ctx = canvas.getContext('2d');
+                                const img = new Image();
+                                img.onload = () => {
+                                  canvas.width = img.width + 40;
+                                  canvas.height = img.height + 40;
+                                  if (ctx) {
+                                    ctx.fillStyle = '#FFFFFF';
+                                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                                    ctx.drawImage(img, 20, 20);
+                                  }
+                                  const pngFile = canvas.toDataURL('image/png');
+                                  const downloadLink = document.createElement('a');
+                                  downloadLink.download = 'barcode.png';
+                                  downloadLink.href = pngFile;
+                                  downloadLink.click();
+                                  showToast('Barcode berhasil diunduh');
+                                };
+                                img.src = 'data:image/svg+xml;base64,' + btoa(svgData);
+                              }
+                            }}
+                            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-[14px] transition-all active:scale-95 text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm border border-transparent cursor-pointer"
+                          >
+                            <Download className="w-[18px] h-[18px]" /> Download Barcode
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()
               ) : (
                 <div className="bg-emerald-50 rounded-2xl p-4 border border-emerald-100 text-center w-full">
                   <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider mb-2">Nomor Virtual Account</p>
@@ -2479,53 +2578,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* Upload Bukti Pembayaran */}
-              <div className="mt-4 pt-4 border-t border-slate-100">
-                <p className="text-xs font-bold text-gray-700 mb-2">Upload Bukti Pembayaran (Opsional)</p>
-                {!popupReceiptFile ? (
-                  <div 
-                    onClick={() => popupFileInputRef.current?.click()}
-                    className="border-2 border-dashed border-gray-300 rounded-xl p-4 text-center cursor-pointer hover:bg-gray-50 hover:border-emerald-500 transition-colors"
-                  >
-                    <Upload className="w-6 h-6 text-gray-400 mx-auto mb-2" />
-                    <p className="text-xs text-gray-500">Klik untuk unggah screenshot pembayaran</p>
-                  </div>
-                ) : (
-                  <div className="relative">
-                    <img src={popupReceiptPreviewUrl} alt="Bukti" className="w-full h-32 object-cover rounded-xl border border-gray-200" />
-                    <button 
-                      onClick={() => { setPopupReceiptFile(null); setPopupReceiptPreviewUrl(''); }}
-                      className="absolute top-2 right-2 bg-white rounded-full p-1 shadow-md text-red-500 hover:bg-red-50"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={handleUploadPopupReceipt}
-                      disabled={isSubmittingPopupReceipt}
-                      className="w-full mt-3 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-xs shadow-md hover:bg-emerald-700 transition-colors disabled:opacity-50"
-                    >
-                      {isSubmittingPopupReceipt ? 'Mengirim...' : 'Kirim Bukti Pembayaran'}
-                    </button>
-                  </div>
-                )}
-                <input 
-                  type="file" 
-                  ref={popupFileInputRef}
-                  className="hidden" 
-                  accept="image/*"
-                  onChange={(e) => {
-                    if (e.target.files && e.target.files[0]) {
-                      const file = e.target.files[0];
-                      if (file.size > 5 * 1024 * 1024) {
-                        showToast("Ukuran file maksimal 5MB", "error");
-                        return;
-                      }
-                      setPopupReceiptFile(file);
-                      setPopupReceiptPreviewUrl(URL.createObjectURL(file));
-                    }
-                  }}
-                />
-              </div>
+
             </div>
 
             {/* Fixed Bottom Button */}
