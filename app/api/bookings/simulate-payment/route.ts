@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { pool } from "@/lib/db";
+import { sendWhatsAppNotification } from "@/lib/notifications";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,7 @@ export async function POST(req: Request) {
 
     // 1. Fetch booking details
     const bookingRes = await pool.query(
-      "SELECT id, booking_code, xendit_id, total_price FROM bookings WHERE booking_code = $1 LIMIT 1",
+      "SELECT id, booking_code, xendit_id, total_price, customer_id FROM bookings WHERE booking_code = $1 LIMIT 1",
       [bookingCode]
     );
 
@@ -31,6 +32,15 @@ export async function POST(req: Request) {
         "UPDATE bookings SET status = 'PAID', updated_at = NOW() WHERE id = $1",
         [booking.id]
       );
+      
+      // Trigger success notification
+      sendWhatsAppNotification(
+        booking.customer_id,
+        booking.booking_code,
+        booking.total_price,
+        "PAYMENT_SUCCESS"
+      ).catch(err => console.error("Simulated payment success notification failed:", err));
+
       return NextResponse.json({ success: true, message: "Manual simulation success" });
     }
 
@@ -91,6 +101,14 @@ export async function POST(req: Request) {
         ]
       );
     }
+
+    // Trigger success notification
+    sendWhatsAppNotification(
+      booking.customer_id,
+      booking.booking_code,
+      booking.total_price,
+      "PAYMENT_SUCCESS"
+    ).catch(err => console.error("Simulated payment success notification failed:", err));
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

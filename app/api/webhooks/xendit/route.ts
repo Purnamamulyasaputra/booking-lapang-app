@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { Pool } from '@neondatabase/serverless';
+import { sendWhatsAppNotification } from '@/lib/notifications';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
@@ -42,13 +43,13 @@ export async function POST(request: Request) {
     let queryParams: any[] = [];
 
     if (xenditId && referenceId) {
-        bookingQuery = "SELECT id, booking_code, total_price FROM bookings WHERE xendit_id = $1 OR booking_code = $2 LIMIT 1";
+        bookingQuery = "SELECT id, booking_code, total_price, customer_id FROM bookings WHERE xendit_id = $1 OR booking_code = $2 LIMIT 1";
         queryParams = [xenditId, referenceId];
     } else if (xenditId) {
-        bookingQuery = "SELECT id, booking_code, total_price FROM bookings WHERE xendit_id = $1 LIMIT 1";
+        bookingQuery = "SELECT id, booking_code, total_price, customer_id FROM bookings WHERE xendit_id = $1 LIMIT 1";
         queryParams = [xenditId];
     } else {
-        bookingQuery = "SELECT id, booking_code, total_price FROM bookings WHERE booking_code = $1 LIMIT 1";
+        bookingQuery = "SELECT id, booking_code, total_price, customer_id FROM bookings WHERE booking_code = $1 LIMIT 1";
         queryParams = [referenceId];
     }
 
@@ -56,7 +57,7 @@ export async function POST(request: Request) {
 
     if (rows.length === 0) {
         console.warn('Booking not found for webhook:', { xenditId, referenceId });
-        return NextResponse.json({ message: 'Booking not found' }, { status: 404 });
+        return NextResponse.json({ message: 'Booking not found (Acknowledged)' }, { status: 200 });
     }
 
     const booking = rows[0];
@@ -72,6 +73,16 @@ export async function POST(request: Request) {
         "INSERT INTO payment_logs (booking_id, invoice_code, amount, status, log_message) VALUES ($1, $2, $3, $4, $5)",
         [booking.id, booking.booking_code, booking.total_price, 'SUCCESS', `Pembayaran berhasil dikonfirmasi via Webhook (Event: ${event})`]
     );
+
+    // Trigger WhatsApp notification for PAYMENT_SUCCESS in the background
+    sendWhatsAppNotification(
+      booking.customer_id,
+      booking.booking_code,
+      booking.total_price,
+      'PAYMENT_SUCCESS'
+    ).catch(err => {
+      console.error("Failed to send WhatsApp alert for payment success via webhook:", err);
+    });
 
     console.log(`Successfully processed webhook for booking ${booking.booking_code}`);
     return NextResponse.json({ message: 'Success' }, { status: 200 });

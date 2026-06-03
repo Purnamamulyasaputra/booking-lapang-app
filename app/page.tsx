@@ -172,6 +172,7 @@ export default function App() {
 
   const [checkoutStep, setCheckoutStep] = useState('select_method');
   const [userPhoneInput, setUserPhoneInput] = useState('');
+  const [isPhoneLocked, setIsPhoneLocked] = useState(false);
   const [createdBooking, setCreatedBooking] = useState<any>(null);
   const [isSubmittingMethod, setIsSubmittingMethod] = useState(false);
   const [isSubmittingReceipt, setIsSubmittingReceipt] = useState(false);
@@ -481,15 +482,21 @@ export default function App() {
   }, [user?.id]);
 
   useEffect(() => {
-    if (user?.id) {
+    if (user?.id && currentView === 'checkout') {
       fetch(`/api/customers?id=${user.id}`)
         .then(res => res.json())
         .then(data => {
-          // Automatic phone prefill removed to force manual input and double-check
+          if (data && data.phone && !data.phone.startsWith("GOOGLE_")) {
+            setUserPhoneInput(data.phone);
+            setIsPhoneLocked(true);
+          } else {
+            setUserPhoneInput("");
+            setIsPhoneLocked(false);
+          }
         })
         .catch(err => console.error("Error fetching customer phone:", err));
     }
-  }, [user?.id]);
+  }, [user?.id, currentView]);
 
   // --- HANDLERS ---
   const handleSearchName = (e) => {
@@ -1685,13 +1692,27 @@ export default function App() {
             <p className="text-[11px] sm:text-xs text-gray-500 mb-4 font-medium leading-relaxed">
               Kami akan mengirimkan notifikasi konfirmasi pesanan dan instruksi pembayaran ke nomor ini.
             </p>
-            <input
-              type="tel"
-              value={userPhoneInput}
-              onChange={(e) => setUserPhoneInput(e.target.value)}
-              placeholder="Contoh: 081234567890"
-              className="w-full border-2 border-gray-100 bg-slate-50 hover:border-emerald-200 hover:bg-white focus:bg-white rounded-2xl px-4 py-3.5 font-bold text-sm text-gray-800 focus:outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all placeholder:text-gray-400 placeholder:font-medium"
-            />
+            <div className="relative">
+              <input
+                type="tel"
+                value={userPhoneInput}
+                onChange={(e) => setUserPhoneInput(e.target.value)}
+                placeholder="Contoh: 081234567890"
+                disabled={isPhoneLocked}
+                className={`w-full border-2 border-gray-100 bg-slate-50 hover:border-emerald-200 hover:bg-white focus:bg-white rounded-2xl px-4 py-3.5 font-bold text-sm text-gray-800 focus:outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all placeholder:text-gray-400 placeholder:font-medium pr-28 ${
+                  isPhoneLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200 focus:ring-0 focus:border-gray-200' : ''
+                }`}
+              />
+              {isPhoneLocked && (
+                <button
+                  type="button"
+                  onClick={() => setIsPhoneLocked(false)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 px-3 py-1.5 text-xs font-extrabold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-xl transition-all border border-emerald-200"
+                >
+                  Ubah Nomor
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Payment Method Selector Styled Like a Premium Input Dropdown */}
@@ -2066,7 +2087,7 @@ export default function App() {
                         <QRCode value={payInfo.value || "PAYMENT_QR"} size={220} />
                       </div>
                       <p className="text-xs text-gray-500 font-bold text-center bg-white py-2 px-4 rounded-xl border border-gray-100 mb-3">Scan QR Code di atas menggunakan aplikasi E-Wallet atau M-Banking Anda.</p>
-                      
+
                       <button
                         onClick={() => {
                           const bookingCode = createdBooking.booking_code || createdBooking.bookingCode;
@@ -2104,18 +2125,10 @@ export default function App() {
                             <h4 className="font-extrabold text-gray-800 mb-2">Cek Aplikasi OVO Anda</h4>
                             <p className="text-xs text-gray-500 font-medium">Kami telah mengirimkan notifikasi pembayaran ke aplikasi OVO yang terhubung dengan nomor HP Anda. Buka aplikasi OVO untuk menyelesaikan pembayaran.</p>
                           </div>
-                        ) : payInfo.value && payInfo.value !== 'EWALLET_PUSH' ? (
-                          <>
-                            <div className="w-full bg-white border border-emerald-100 rounded-xl p-5 shadow-sm mb-4 flex items-center justify-center">
-                              <QRCode value={payInfo.value} size={200} />
-                            </div>
-                            <p className="text-xs text-gray-500 font-bold text-center bg-white py-2 px-4 rounded-xl border border-gray-100 mb-4 w-full">
-                              Scan QR Code di atas menggunakan aplikasi {payInfo.channelCode} atau E-Wallet lainnya.
-                            </p>
-                          </>
                         ) : (
                           <div className="w-full bg-white border border-emerald-100 rounded-xl p-6 shadow-sm mb-4 text-center">
                             <p className="text-sm font-bold text-gray-700 mb-2">Selesaikan pembayaran melalui aplikasi {payInfo.channelCode}</p>
+                            <p className="text-xs text-gray-500 font-medium">Silakan klik tombol di bawah untuk membuka halaman pembayaran resmi atau melakukan simulasi pembayaran.</p>
                           </div>
                         )}
 
@@ -2165,7 +2178,7 @@ export default function App() {
                           {copiedBCA ? 'Tersalin' : 'Salin'}
                         </button>
                       </div>
-                      
+
                       <button
                         onClick={() => {
                           const bookingCode = createdBooking.booking_code || createdBooking.bookingCode;
@@ -2238,7 +2251,7 @@ export default function App() {
                       </div>
 
                       {/* Nominal Utility Removed per user request */}
-                      
+
                       <button
                         onClick={() => {
                           const bookingCode = createdBooking.booking_code || createdBooking.bookingCode;
@@ -2257,7 +2270,7 @@ export default function App() {
               })()}
             </div>
 
-            </div>
+          </div>
 
           {/* Instruksi Card - Emerald themed */}
           <div className="space-y-6">
@@ -2487,6 +2500,11 @@ export default function App() {
                       <h4 className="font-extrabold text-gray-800 mb-2 text-xs">Cek Aplikasi OVO Anda</h4>
                       <p className="text-[10px] text-gray-500 font-medium leading-relaxed">Notifikasi tagihan telah dikirimkan ke aplikasi OVO Anda. Silakan buka aplikasi OVO untuk menyelesaikan pembayaran.</p>
                     </div>
+                  ) : paymentPopup.type === 'url' ? (
+                    <div className="w-full bg-white border border-emerald-100 rounded-xl p-5 mb-4 text-center">
+                      <p className="text-xs sm:text-sm font-extrabold text-gray-700 mb-2">Selesaikan pembayaran melalui Link Pembayaran E-Wallet</p>
+                      <p className="text-[10px] sm:text-xs text-gray-500 font-medium leading-relaxed">Silakan klik tombol di bawah untuk memproses transaksi Anda secara langsung di halaman resmi.</p>
+                    </div>
                   ) : (
                     <>
                       <p className="text-[10px] text-gray-400 mb-3 leading-relaxed text-center">
@@ -2498,7 +2516,7 @@ export default function App() {
                     </>
                   )}
                   <div className="flex flex-col gap-2 w-full">
-                    {paymentPopup.value !== 'OVO_PUSH' && (
+                    {paymentPopup.type === 'qris' && paymentPopup.value !== 'OVO_PUSH' && (
                       <button
                         onClick={() => {
                           const svg = document.getElementById('qris-canvas');

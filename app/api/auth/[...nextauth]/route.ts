@@ -111,7 +111,7 @@ export const authOptions = {
             if (!isRegisterFlow) {
               return "/login?error=NotRegistered";
             }
-            const uniquePhone = '08' + Math.floor(1000000000 + Math.random() * 9000000000).toString();
+            const uniquePhone = 'GOOGLE_' + Math.floor(1000000000 + Math.random() * 9000000000).toString();
             const insertResult = await pool.query(
               "INSERT INTO customers (name, email, phone, password_hash, tier) VALUES ($1, $2, $3, $4, $5) RETURNING *",
               [profile.name, profile.email, uniquePhone, "google-sso", "BRONZE"]

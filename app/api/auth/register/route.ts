@@ -17,12 +17,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ message: 'Email sudah terdaftar' }, { status: 400 });
     }
 
-    if (phone) {
-      const { rows: phoneRows } = await pool.query("SELECT * FROM customers WHERE phone = $1", [phone]);
-      if (phoneRows.length > 0) {
-        return NextResponse.json({ message: 'Nomor telepon sudah terdaftar' }, { status: 400 });
-      }
-    }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 

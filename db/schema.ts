@@ -25,7 +25,7 @@ export const customers = pgTable("customers", {
   id: bigserial("id", { mode: "number" }).primaryKey(),
   name: varchar("name", { length: 150 }).notNull(),
   email: varchar("email", { length: 150 }).unique().notNull(),
-  phone: varchar("phone", { length: 20 }).unique().notNull(),
+  phone: varchar("phone", { length: 20 }).notNull(),
   passwordHash: varchar("password_hash", { length: 255 }).notNull(),
   loyaltyPoints: integer("loyalty_points").default(0),
   tier: varchar("tier", { length: 50 }).default("BRONZE"),
@@ -80,7 +80,8 @@ export const bookings = pgTable("bookings", {
   pointsEarned: integer("points_earned").default(0),
   status: varchar("status", { length: 30 }).default("MENUNGGU").notNull(),
   receiptImg: text("receipt_img"),
-  rating: integer("rating"),
+  iswacheckout: boolean("iswacheckout").default(false).notNull(),
+  iswapaid: boolean("iswapaid").default(false).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
