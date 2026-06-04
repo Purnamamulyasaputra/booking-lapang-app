@@ -39,7 +39,7 @@ async function seed() {
       -- Seed Notification Templates
       INSERT INTO notif_templates (name, type, trigger_event, subject, content) VALUES 
       ('Notifikasi Menunggu Pembayaran', 'WHATSAPP', 'BOOKING_CREATED', NULL, 'Halo {{name}}, pesanan lapangan Anda ({{booking_code}}) berhasil dibuat. Silakan lakukan pembayaran sebesar Rp {{total_price}}.'),
-      ('Notifikasi Pembayaran Sukses', 'WHATSAPP', 'PAYMENT_SUCCESS', NULL, 'Terima kasih {{name}}, pembayaran untuk pesanan ({{booking_code}}) telah dikonfirmasi. Selamat bermain!') ON CONFLICT DO NOTHING;
+      ('Notifikasi Pembayaran Sukses', 'WHATSAPP', 'PAYMENT_SUCCESS', NULL, 'Terima kasih pembayaran Anda berhasil. ID: {{booking_code}}') ON CONFLICT DO NOTHING;
 
       -- Seed dummy payment methods to satisfy foreign key for IDs 1-19
       INSERT INTO payment_methods (id, code, name, type)

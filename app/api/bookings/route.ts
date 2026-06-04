@@ -417,6 +417,8 @@ export async function POST(req: Request) {
 
     // Attach xendit response to the returned booking object
     booking.xendit = xenditResponseData;
+    booking.paymentMethodCode = paymentMethodCode;
+    booking.payment_method_code = paymentMethodCode;
 
 
     // Trigger WhatsApp notification for BOOKING_CREATED in the background with dynamic paymentMethodCode

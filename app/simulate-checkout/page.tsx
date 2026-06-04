@@ -16,11 +16,36 @@ function SimulateCheckoutContent() {
 
   const [isPaying, setIsPaying] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [simulationStep, setSimulationStep] = useState<'details' | 'waiting' | 'success'>('details');
+  const [countdown, setCountdown] = useState(4);
 
   const handlePayment = async () => {
     if (!bookingCode) return;
     setIsPaying(true);
     setErrorMessage("");
+
+    const isEwallet = type === "EWALLET" || (channel && ['dana', 'gopay', 'ovo', 'shopee', 'linkaja', 'qris'].some(c => channel.toLowerCase().includes(c)));
+
+    if (isEwallet) {
+      setSimulationStep('waiting');
+      setCountdown(4);
+      
+      const interval = setInterval(() => {
+        setCountdown(prev => {
+          if (prev <= 1) {
+            clearInterval(interval);
+            triggerPaymentApi();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else {
+      triggerPaymentApi();
+    }
+  };
+
+  const triggerPaymentApi = async () => {
     try {
       const res = await fetch("/api/bookings/simulate-payment", {
         method: "POST",
@@ -29,14 +54,20 @@ function SimulateCheckoutContent() {
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        // Redirect to success page
-        router.push(`/payment-success?booking=${bookingCode}`);
+        const isEwallet = type === "EWALLET" || (channel && ['dana', 'gopay', 'ovo', 'shopee', 'linkaja', 'qris'].some(c => channel.toLowerCase().includes(c)));
+        if (isEwallet) {
+          setSimulationStep('success');
+        } else {
+          router.push(`/payment-success?booking=${bookingCode}`);
+        }
       } else {
         setErrorMessage(data.error || "Gagal memproses simulasi pembayaran.");
+        setSimulationStep('details');
       }
     } catch (err) {
       console.error(err);
       setErrorMessage("Terjadi kesalahan jaringan.");
+      setSimulationStep('details');
     } finally {
       setIsPaying(false);
     }
@@ -61,7 +92,70 @@ function SimulateCheckoutContent() {
   let methodLabel = "Virtual Account Test Payment";
   if (type === "QR_CODE") methodLabel = "QRIS Test Payment";
   if (type === "OVER_THE_COUNTER") methodLabel = "Retail Outlet Test Payment";
-  if (type === "EWALLET") methodLabel = "eWallet Test Payment";
+  if (type === "EWALLET") methodLabel = `${channel || 'eWallet'} Test Payment`;
+
+  if (simulationStep === 'waiting') {
+    return (
+      <div className="w-full max-w-md bg-white rounded-3xl shadow-xl border border-gray-100 p-8 flex flex-col items-center justify-center text-center animate-fade-in">
+        {/* Animated Hourglass Icon */}
+        <div className="w-24 h-24 mb-6 flex items-center justify-center relative">
+          <svg className="w-16 h-16 text-amber-500 animate-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 2h14" />
+            <path d="M5 22h14" />
+            <path d="M19 2v4c0 1.38-1.13 2.5-2.5 2.5S14 7.38 14 6V2" />
+            <path d="M5 2v4c0 1.38 1.13 2.5 2.5 2.5S10 7.38 10 6V2" />
+            <path d="M14 6v6.5c0 .83-.67 1.5-1.5 1.5s-1.5-.67-1.5-1.5V6" />
+            <path d="M10 18v-4c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5v4" />
+            <path d="M19 22v-4c0-1.38-1.13-2.5-2.5-2.5S14 16.62 14 18v4" />
+            <path d="M5 22v-4c0-1.38 1.13-2.5 2.5-2.5S10 16.62 10 18v4" />
+          </svg>
+          <div className="absolute inset-0 border-4 border-dashed border-amber-300 rounded-full animate-spin" style={{ animationDuration: '8s' }}></div>
+        </div>
+
+        <h2 className="text-2xl font-extrabold text-gray-800 mb-3 tracking-tight">
+          Waiting for confirmation...
+        </h2>
+        <p className="text-gray-500 text-sm font-medium mb-8 leading-relaxed max-w-sm">
+          We're waiting for our partner to confirm your payment. This may take a while, but your payment status will update automatically once it's done.
+        </p>
+
+        <div className="w-full pt-6 border-t border-gray-100 flex items-center justify-center gap-2 text-xs font-bold text-gray-400">
+          <svg className="w-4 h-4 text-gray-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+          Payment is secured by <span className="text-gray-500 font-extrabold">xendit</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (simulationStep === 'success') {
+    return (
+      <div className="w-full max-w-md bg-white rounded-3xl shadow-xl border border-gray-100 p-8 flex flex-col items-center justify-center text-center animate-fade-in">
+        {/* Animated Check Circle */}
+        <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mb-6">
+          <svg className="w-10 h-10 text-emerald-600 animate-bounce" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        </div>
+
+        <h2 className="text-2xl font-black text-gray-900 mb-2 tracking-tight">
+          Payment Successful!
+        </h2>
+        <p className="text-gray-500 text-sm font-medium mb-8 leading-relaxed max-w-sm">
+          Thank you for your purchase! Your booking <span className="font-extrabold text-emerald-600">{bookingCode}</span> is now confirmed.
+        </p>
+
+        <button
+          onClick={() => router.push("/")}
+          className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-2xl transition-all shadow-md active:scale-95 text-center text-sm"
+        >
+          Back to Booking App
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full max-w-2xl bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">

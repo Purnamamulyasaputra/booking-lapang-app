@@ -74,6 +74,15 @@ export async function POST(req: Request) {
         "UPDATE bookings SET status = 'PAID', updated_at = NOW() WHERE id = $1",
         [booking.id]
       );
+
+      // Trigger success notification in fallback path
+      sendWhatsAppNotification(
+        booking.customer_id,
+        booking.booking_code,
+        booking.total_price,
+        "PAYMENT_SUCCESS"
+      ).catch(err => console.error("Simulated payment success notification failed:", err));
+
       return NextResponse.json({ success: true, warning: "Simulasi berhasil dengan paksa (status lunas)" });
     }
 

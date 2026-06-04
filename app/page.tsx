@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Search, Calendar, Clock, Star, MapPin, Upload,
   User, LogOut, ArrowLeft, CheckCircle2, XCircle, ShieldCheck,
-  Image as ImageIcon, Home, FileText, CheckCircle, Clock3, XOctagon, AlertTriangle, ChevronRight, ChevronUp, ChevronDown, X, Download, QrCode, Wallet, CreditCard, Copy
+  Image as ImageIcon, Home, FileText, CheckCircle, Clock3, XOctagon, AlertTriangle, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, X, Download, QrCode, Wallet, CreditCard, Copy
 } from 'lucide-react';
 import { useSession, signIn, signOut } from 'next-auth/react';
 
@@ -131,6 +131,8 @@ export default function App() {
 
   // Home / Search State
   const [fields, setFields] = useState([]);
+  const [fieldsPage, setFieldsPage] = useState(1);
+  const fieldsPerPage = 5;
   const [allFields, setAllFields] = useState([]);
   const [isLoadingFields, setIsLoadingFields] = useState(true);
   const [searchName, setSearchName] = useState(''); // Diperbaiki: Variabel ini sebelumnya terhapus
@@ -256,6 +258,7 @@ export default function App() {
   const [selectedStar, setSelectedStar] = useState(0);
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
   const [paymentPopup, setPaymentPopup] = useState<{ isOpen: boolean, type: string, value: string, title: string, booking: any }>({ isOpen: false, type: '', value: '', title: '', booking: null });
+  const [detailBookingPopup, setDetailBookingPopup] = useState<{ isOpen: boolean, booking: any }>({ isOpen: false, booking: null });
   const [popupReceiptFile, setPopupReceiptFile] = useState<File | null>(null);
   const [popupReceiptPreviewUrl, setPopupReceiptPreviewUrl] = useState('');
   const [isSubmittingPopupReceipt, setIsSubmittingPopupReceipt] = useState(false);
@@ -460,17 +463,43 @@ export default function App() {
         .then(res => res.json())
         .then(data => {
           if (!Array.isArray(data)) return;
-          const adapted = data.map((b: any) => ({
-            id: b.id,
-            bookingCode: b.booking_code || b.bookingCode,
-            fieldName: b.field_name,
-            date: new Date(b.booking_date).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
-            time: `${b.start_hour}:00 - ${b.end_hour}:00`,
-            price: Number(b.total_price),
-            status: b.status.toLowerCase(),
-            receiptImg: b.receipt_img,
-            rated: false
-          }));
+          const adapted = data.map((b: any) => {
+            let pmName = b.payment_method || '';
+            if (!pmName && b.receipt_img) {
+              const imgStr = b.receipt_img;
+              if (imgStr.startsWith('QR_STRING:')) {
+                pmName = 'QRIS';
+              } else if (imgStr.startsWith('VA_NUMBER:')) {
+                const parts = imgStr.split(':');
+                pmName = parts[1] || 'Virtual Account';
+              } else if (imgStr.startsWith('RETAIL_OUTLET:')) {
+                const parts = imgStr.split(':');
+                pmName = parts[1] || 'Over The Counter';
+              } else if (imgStr.startsWith('CHECKOUT_URL:')) {
+                pmName = 'E-Wallet';
+              }
+            }
+            if (!pmName) {
+              pmName = 'Transfer';
+            }
+
+            return {
+              id: b.id,
+              bookingCode: b.booking_code || b.bookingCode,
+              fieldName: b.field_name,
+              date: new Date(b.booking_date).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
+              time: `${b.start_hour}:00 - ${b.end_hour}:00`,
+              price: Number(b.total_price),
+              status: b.status.toLowerCase(),
+              receiptImg: b.receipt_img,
+              customerPhone: b.customer_phone,
+              paymentMethod: pmName,
+              paymentMethodCode: b.payment_method_code,
+              totalPrice: Number(b.total_price),
+              createdAt: new Date(b.created_at).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + ' | ' + new Date(b.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }).replace(/\./g, ':') + ' WIB',
+              rated: false
+            };
+          });
           setMyBookings(adapted);
         })
         .catch(err => console.error("Error fetching bookings", err));
@@ -502,6 +531,7 @@ export default function App() {
   const handleSearchName = (e) => {
     const val = e.target.value;
     setSearchName(val);
+    setFieldsPage(1);
     let filtered = allFields.filter((f: any) => f.name.toLowerCase().includes(val.toLowerCase()));
 
     // Pertahankan filter jam jika sedang aktif
@@ -512,6 +542,7 @@ export default function App() {
   };
 
   const handleSearch = async () => {
+    setFieldsPage(1);
     let filtered = allFields;
     if (searchName) {
       filtered = filtered.filter(f => f.name.toLowerCase().includes(searchName.toLowerCase()));
@@ -554,7 +585,35 @@ export default function App() {
     setSearchDate(new Date().toISOString().split('T')[0]);
     setSearchTime('');
     setBookedFieldIds([]);
+    setFieldsPage(1);
     setFields(allFields);
+  };
+
+  const formatPaymentMethod = (pm: string) => {
+    if (!pm) return 'Manual';
+    const capsAcronyms = ['bsi', 'bca', 'bri', 'bni', 'bjb', 'bss', 'bnc', 'va', 'otc', 'ovo', 'qris'];
+    return pm.toLowerCase().split(' ').map(word => {
+      if (capsAcronyms.includes(word)) {
+        return word.toUpperCase();
+      }
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    }).join(' ');
+  };
+
+  const getPageNumbers = (current: number, total: number) => {
+    const pages: (number | string)[] = [];
+    if (total <= 5) {
+      for (let i = 1; i <= total; i++) pages.push(i);
+    } else {
+      if (current <= 3) {
+        pages.push(1, 2, 3, 4, '...', total);
+      } else if (current >= total - 2) {
+        pages.push(1, '...', total - 3, total - 2, total - 1, total);
+      } else {
+        pages.push(1, '...', current - 1, current, current + 1, '...', total);
+      }
+    }
+    return pages;
   };
 
   const openFieldDetail = (field) => {
@@ -573,6 +632,31 @@ export default function App() {
     setUserPhoneInput('');
     setCurrentView('detail');
     window.scrollTo(0, 0);
+  };
+
+  const openBookingDetail = (bkg) => {
+    const rawStatus = (bkg.status || '').toLowerCase();
+    const isPending = rawStatus === 'menunggu' || rawStatus === 'menunggu pembayaran' || rawStatus === 'pending';
+
+    if (isPending && bkg.receiptImg) {
+      if (bkg.receiptImg.startsWith('QR_STRING:')) {
+        setPaymentPopup({ isOpen: true, type: 'qris', value: bkg.receiptImg.replace('QR_STRING:', ''), title: 'Scan QRIS', booking: bkg });
+        return;
+      } else if (bkg.receiptImg.startsWith('CHECKOUT_URL:')) {
+        setPaymentPopup({ isOpen: true, type: 'url', value: bkg.receiptImg.replace('CHECKOUT_URL:', ''), title: 'Link Pembayaran E-Wallet', booking: bkg });
+        return;
+      } else if (bkg.receiptImg.startsWith('VA_NUMBER:')) {
+        const parts = bkg.receiptImg.split(':');
+        setPaymentPopup({ isOpen: true, type: 'va', value: parts[2], title: `Virtual Account ${parts[1]?.toUpperCase() || ''}`, booking: bkg });
+        return;
+      } else if (bkg.receiptImg.startsWith('RETAIL_OUTLET:')) {
+        const parts = bkg.receiptImg.split(':');
+        setPaymentPopup({ isOpen: true, type: 'retail', value: parts[2], channelCode: parts[1]?.toUpperCase(), title: `Pembayaran ${parts[1]?.toUpperCase() || ''}`, booking: bkg });
+        return;
+      }
+    }
+
+    setDetailBookingPopup({ isOpen: true, booking: bkg });
   };
 
   const handleScroll = () => {
@@ -956,7 +1040,7 @@ export default function App() {
           </div>
         ) : fields.length === 0 ? (
           <div className="col-span-full py-12 text-center text-gray-500 font-bold">Tidak ada lapangan yang sesuai dengan pencarian.</div>
-        ) : fields.map(field => (
+        ) : fields.slice((fieldsPage - 1) * fieldsPerPage, fieldsPage * fieldsPerPage).map(field => (
           <div key={field.id} className="bg-white rounded-3xl shadow-sm overflow-hidden group flex flex-col border border-gray-100 hover:shadow-xl transition-all duration-300">
             <div className="relative h-48 sm:h-52 overflow-hidden cursor-pointer" onClick={() => openFieldDetail(field)}>
               <img src={field.images[0]} alt={field.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
@@ -996,6 +1080,59 @@ export default function App() {
           </div>
         ))}
       </div>
+
+      {/* Pagination Controls */}
+      {fields.length > fieldsPerPage && (
+        <div className="flex justify-center items-center gap-2 mt-8">
+          <button
+            onClick={() => {
+              setFieldsPage(prev => Math.max(prev - 1, 1));
+              window.scrollTo({ top: 400, behavior: 'smooth' });
+            }}
+            disabled={fieldsPage === 1}
+            className="p-2.5 rounded-xl border border-gray-200 bg-white shadow-sm transition-all text-gray-700 hover:bg-emerald-50 hover:text-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+
+          {getPageNumbers(fieldsPage, Math.ceil(fields.length / fieldsPerPage)).map((pageVal, idx) => {
+            if (pageVal === '...') {
+              return (
+                <span key={`ellipsis-fields-${idx}`} className="w-10 h-10 flex items-center justify-center text-gray-400 font-bold">
+                  ...
+                </span>
+              );
+            }
+            const pageNum = pageVal as number;
+            return (
+              <button
+                key={pageNum}
+                onClick={() => {
+                  setFieldsPage(pageNum);
+                  window.scrollTo({ top: 400, behavior: 'smooth' });
+                }}
+                className={`w-10 h-10 font-extrabold rounded-xl text-xs sm:text-sm transition-all focus:outline-none focus:ring-4 ${fieldsPage === pageNum
+                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20 focus:ring-emerald-500/30'
+                  : 'border border-gray-200 bg-white text-gray-700 hover:bg-emerald-50 hover:text-emerald-600 focus:ring-emerald-500/10'
+                  }`}
+              >
+                {pageNum}
+              </button>
+            );
+          })}
+
+          <button
+            onClick={() => {
+              setFieldsPage(prev => Math.min(prev + 1, Math.ceil(fields.length / fieldsPerPage)));
+              window.scrollTo({ top: 400, behavior: 'smooth' });
+            }}
+            disabled={fieldsPage === Math.ceil(fields.length / fieldsPerPage)}
+            className="p-2.5 rounded-xl border border-gray-200 bg-white shadow-sm transition-all text-gray-700 hover:bg-emerald-50 hover:text-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      )}
     </div>
   );
 
@@ -1038,8 +1175,12 @@ export default function App() {
                 }
 
                 return (
-                  <div key={index} className={`bg-white rounded-2xl shadow-sm border p-3.5 sm:p-4 flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center ${bkg.status === 'dibatalkan' ? 'border-gray-200 opacity-60' : 'border-gray-100'}`}>
-                    <div className="w-full sm:w-auto flex-1">
+                  <div
+                    key={index}
+                    onClick={() => openBookingDetail(bkg)}
+                    className={`bg-white rounded-2xl shadow-sm border p-3.5 sm:p-4 flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center cursor-pointer hover:shadow-md transition-all active:scale-[0.995] ${bkg.status === 'dibatalkan' ? 'border-gray-200 opacity-60' : 'border-gray-100'}`}
+                  >
+                    <div className="w-full sm:w-auto flex-1 text-left">
                       <div className="flex justify-between items-start mb-1.5 sm:mb-1">
                         <p className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">{bkg.bookingCode}</p>
                         <div className={`sm:hidden flex items-center px-1.5 py-0.5 rounded-md border text-[9px] font-bold ${statusColor}`}>
@@ -1060,7 +1201,8 @@ export default function App() {
                         {/* Tombol Lihat Kode Pembayaran */}
                         {bkg.receiptImg && (bkg.receiptImg.startsWith('QR_STRING:') || bkg.receiptImg.startsWith('CHECKOUT_URL:') || bkg.receiptImg.startsWith('VA_NUMBER:') || bkg.receiptImg.startsWith('RETAIL_OUTLET:')) && (bkg.status === 'menunggu pembayaran' || bkg.status === 'menunggu' || bkg.status === 'pending') && (
                           <button
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               if (bkg.receiptImg.startsWith('QR_STRING:')) {
                                 setPaymentPopup({ isOpen: true, type: 'qris', value: bkg.receiptImg.replace('QR_STRING:', ''), title: 'Scan QRIS', booking: bkg });
                               } else if (bkg.receiptImg.startsWith('CHECKOUT_URL:')) {
@@ -1082,7 +1224,10 @@ export default function App() {
                         {/* Tombol Cancel (Khusus untuk status Menunggu) */}
                         {(bkg.status === 'menunggu' || bkg.status === 'menunggu pembayaran') && (
                           <button
-                            onClick={() => setConfirmCancelId(bkg.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setConfirmCancelId(bkg.id);
+                            }}
                             className="inline-flex items-center justify-center px-3 py-1.5 border border-red-200 text-red-600 hover:bg-red-50 rounded-lg text-[10px] sm:text-xs font-bold transition-colors w-full sm:w-auto"
                           >
                             <XOctagon className="w-3 h-3 mr-1" /> Batalkan Pesanan
@@ -1092,7 +1237,10 @@ export default function App() {
                         {/* Tombol Beri Ulasan (Khusus untuk status Dikonfirmasi yang belum di-rate) */}
                         {bkg.status === 'dikonfirmasi' && !bkg.rated && (
                           <button
-                            onClick={() => setRatingBooking(bkg)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setRatingBooking(bkg);
+                            }}
                             className="inline-flex items-center justify-center px-3 py-1.5 border border-yellow-300 text-yellow-700 bg-yellow-50 hover:bg-yellow-100 rounded-lg text-[10px] sm:text-xs font-bold transition-colors shadow-sm w-full sm:w-auto"
                           >
                             <Star className="w-3 h-3 mr-1 fill-current" /> Beri Ulasan
@@ -1133,9 +1281,16 @@ export default function App() {
                 >
                   <ChevronRight className="w-4 h-4 rotate-180" />
                 </button>
-                <div className="flex gap-1.5">
-                  {Array.from({ length: totalMyBookingsPages }).map((_, i) => {
-                    const pageNum = i + 1;
+                <div className="flex gap-1.5 flex-wrap justify-center">
+                  {getPageNumbers(activeMyBookingsPage, totalMyBookingsPages).map((pageVal, idx) => {
+                    if (pageVal === '...') {
+                      return (
+                        <span key={`ellipsis-bkg-${idx}`} className="w-9 h-9 flex items-center justify-center text-gray-400 font-bold">
+                          ...
+                        </span>
+                      );
+                    }
+                    const pageNum = pageVal as number;
                     const isActive = activeMyBookingsPage === pageNum;
                     return (
                       <button
@@ -1386,11 +1541,11 @@ export default function App() {
                   <div className="mt-6">
                     <h3 className="font-extrabold text-gray-900 mb-3 text-base sm:text-xl">Lokasi Lapangan</h3>
                     <div className="w-full p-6 bg-gray-50 rounded-2xl border border-gray-200 text-center flex flex-col items-center justify-center">
-                      <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4">
-                        <MapPin className="h-8 w-8 text-blue-600" />
+                      <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mb-4">
+                        <MapPin className="h-8 w-8 text-emerald-600" />
                       </div>
                       <p className="text-sm font-bold text-gray-700 mb-4 text-center">Buka Google Maps untuk melihat rute perjalanan ke lapangan ini.</p>
-                      <a href={selectedField.mapUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center bg-blue-600 text-white px-6 py-3 rounded-xl font-bold shadow-md hover:bg-blue-700 transition-colors">
+                      <a href={selectedField.mapUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold shadow-md hover:bg-emerald-700 transition-colors">
                         Buka di Google Maps
                       </a>
                     </div>
@@ -1699,9 +1854,8 @@ export default function App() {
                 onChange={(e) => setUserPhoneInput(e.target.value)}
                 placeholder="Contoh: 081234567890"
                 disabled={isPhoneLocked}
-                className={`w-full border-2 border-gray-100 bg-slate-50 hover:border-emerald-200 hover:bg-white focus:bg-white rounded-2xl px-4 py-3.5 font-bold text-sm text-gray-800 focus:outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all placeholder:text-gray-400 placeholder:font-medium pr-28 ${
-                  isPhoneLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200 focus:ring-0 focus:border-gray-200' : ''
-                }`}
+                className={`w-full border-2 border-gray-100 bg-slate-50 hover:border-emerald-200 hover:bg-white focus:bg-white rounded-2xl px-4 py-3.5 font-bold text-sm text-gray-800 focus:outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all placeholder:text-gray-400 placeholder:font-medium pr-28 ${isPhoneLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200 focus:ring-0 focus:border-gray-200' : ''
+                  }`}
               />
               {isPhoneLocked && (
                 <button
@@ -1808,8 +1962,8 @@ export default function App() {
                         onClick={() => handleGroupClick(title, items)}
                       >
                         <div className="flex items-center gap-3 sm:gap-4 shrink-0 mr-2">
-                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${isCategorySelected ? 'border-blue-600' : 'border-gray-300'}`}>
-                            {isCategorySelected && <div className="w-2.5 h-2.5 bg-blue-600 rounded-full"></div>}
+                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${isCategorySelected ? 'border-emerald-600' : 'border-gray-300'}`}>
+                            {isCategorySelected && <div className="w-2.5 h-2.5 bg-emerald-600 rounded-full"></div>}
                           </div>
                           <span className="font-medium text-sm sm:text-[15px] text-gray-800 whitespace-nowrap">{title}</span>
                         </div>
@@ -1850,7 +2004,7 @@ export default function App() {
                         <div className="px-4 pb-4 pt-1 bg-white">
                           <div className="relative">
                             <div
-                              className="w-full bg-white border border-gray-200 hover:border-blue-500 rounded-lg p-3 flex justify-between items-center cursor-pointer shadow-sm transition-colors"
+                              className="w-full bg-white border border-gray-200 hover:border-emerald-500 rounded-lg p-3 flex justify-between items-center cursor-pointer shadow-sm transition-colors"
                               onClick={() => setOpenDropdownGroup(openDropdownGroup === title ? null : title)}
                             >
                               <span className={selectedPaymentMethod && items.some(pm => pm.key === selectedPaymentMethod) ? 'text-gray-800 font-bold text-sm' : 'text-gray-400 text-sm'}>
@@ -1915,7 +2069,7 @@ export default function App() {
                                     return (
                                       <div
                                         key={pm.key}
-                                        className={`flex items-center px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors ${selectedPaymentMethod === pm.key ? 'bg-blue-50/30' : ''}`}
+                                        className={`flex items-center px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors ${selectedPaymentMethod === pm.key ? 'bg-emerald-50/30' : ''}`}
                                         onClick={() => {
                                           setSelectedPaymentMethod(pm.key);
                                           setInstructionTab(0);
@@ -2050,11 +2204,21 @@ export default function App() {
                       </div>
                     ) : null;
                   })()}
-                  <span className="block text-base sm:text-lg text-emerald-600 font-extrabold tracking-wider uppercase leading-none">
+                  <span className="block text-base sm:text-lg text-emerald-600 font-extrabold tracking-wider leading-none">
                     {(() => {
                       const payInfo = getPaymentInfo(createdBooking);
-                      if (!payInfo) return createdBooking?.payment_method_code || 'PEMBAYARAN';
-                      return `${payInfo.type?.replace('_', ' ')} - ${payInfo.channelCode}`;
+                      if (!payInfo) {
+                        const rawCode = createdBooking?.payment_method_code || 'PEMBAYARAN';
+                        return rawCode.toUpperCase();
+                      }
+                      
+                      let typeStr = payInfo.type;
+                      if (typeStr === 'EWALLET') typeStr = 'E-Wallet';
+                      else if (typeStr === 'QR_CODE') typeStr = 'QRIS';
+                      else typeStr = typeStr?.replace('_', ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+                      
+                      const channelStr = payInfo.channelCode === 'E-Wallet' ? 'E-Wallet' : payInfo.channelCode?.toUpperCase();
+                      return `${typeStr} - ${channelStr}`;
                     })()}
                   </span>
                 </div>
@@ -2102,7 +2266,12 @@ export default function App() {
                 }
 
                 if (payInfo.type === 'EWALLET') {
-                  const isOvo = payInfo.channelCode?.toUpperCase() === 'OVO' || payInfo.value === 'OVO_PUSH';
+                  const channelUpper = (payInfo.channelCode || '').toUpperCase();
+                  const isOvo = channelUpper === 'OVO' || payInfo.value === 'OVO_PUSH';
+                  const isShopeePay = channelUpper === 'SHOPEEPAY' || channelUpper.includes('SHOPEE');
+                  const isDana = channelUpper === 'DANA';
+                  const isGopay = channelUpper === 'GOPAY' || channelUpper.includes('GO');
+
                   return (
                     <div className="w-full border-2 border-emerald-100 bg-emerald-50/20 rounded-2xl p-4 flex flex-col items-center">
                       <div className="w-full flex items-center justify-between bg-white border border-emerald-100 rounded-xl py-3 px-4 shadow-sm mb-5">
@@ -2117,32 +2286,58 @@ export default function App() {
                       </div>
 
                       <div className="w-full flex flex-col items-center">
-                        {isOvo ? (
+                        {isShopeePay ? (
+                          <div className="w-full bg-white border border-emerald-100 rounded-xl p-6 shadow-sm mb-4 flex flex-col items-center justify-center">
+                            <div className="mb-4">
+                              <QRCode value={payInfo.value || "PAYMENT_QR"} size={200} />
+                            </div>
+                            <p className="text-xs text-gray-500 font-bold text-center bg-white py-2 px-4 rounded-xl border border-gray-100">
+                              Scan QR Code di atas menggunakan aplikasi ShopeePay Anda.
+                            </p>
+                          </div>
+                        ) : isOvo ? (
                           <div className="w-full bg-white border border-emerald-100 rounded-xl p-6 shadow-sm mb-4 flex flex-col items-center text-center">
-                            <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mb-3">
-                              <span className="text-purple-600 font-extrabold text-xl">OVO</span>
+                            <div className="w-16 h-16 bg-purple-50 rounded-full flex items-center justify-center mb-3 p-2.5">
+                              <img src="https://branditechture.agency/brand-logos/wp-content/uploads/wpdm-cache/OVO-900x0.png" alt="OVO Logo" className="w-full h-full object-contain" />
                             </div>
                             <h4 className="font-extrabold text-gray-800 mb-2">Cek Aplikasi OVO Anda</h4>
-                            <p className="text-xs text-gray-500 font-medium">Kami telah mengirimkan notifikasi pembayaran ke aplikasi OVO yang terhubung dengan nomor HP Anda. Buka aplikasi OVO untuk menyelesaikan pembayaran.</p>
+                            <p className="text-xs text-gray-500 font-medium font-sans">Kami telah mengirimkan notifikasi pembayaran ke aplikasi OVO yang terhubung dengan nomor HP Anda. Buka aplikasi OVO untuk menyelesaikan pembayaran.</p>
+                          </div>
+                        ) : isDana ? (
+                          <div className="w-full bg-white border border-emerald-100 rounded-xl p-6 shadow-sm mb-4 flex flex-col items-center text-center">
+                            <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mb-3 p-2.5">
+                               <img src="https://upload.wikimedia.org/wikipedia/commons/7/72/Logo_dana_blue.svg" alt="DANA Logo" className="w-full h-full object-contain" />
+                            </div>
+                            <h4 className="font-extrabold text-gray-800 mb-2">Selesaikan Pembayaran DANA</h4>
+                            <p className="text-xs text-gray-500 font-medium font-sans">Selesaikan pembayaran di aplikasi DANA Anda. Silakan klik tombol di bawah untuk melakukan simulasi pembayaran.</p>
+                          </div>
+                        ) : isGopay ? (
+                          <div className="w-full bg-white border border-emerald-100 rounded-xl p-6 shadow-sm mb-4 flex flex-col items-center text-center">
+                            <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mb-3 p-2.5">
+                               <img src="https://upload.wikimedia.org/wikipedia/commons/8/86/Gopay_logo.svg" alt="GoPay Logo" className="w-full h-full object-contain" />
+                            </div>
+                            <h4 className="font-extrabold text-gray-800 mb-2">Selesaikan Pembayaran GoPay</h4>
+                            <p className="text-xs text-gray-500 font-medium font-sans">Selesaikan transaksi Anda melalui aplikasi GoPay Anda. Silakan klik tombol di bawah untuk melakukan simulasi pembayaran.</p>
                           </div>
                         ) : (
-                          <div className="w-full bg-white border border-emerald-100 rounded-xl p-6 shadow-sm mb-4 text-center">
-                            <p className="text-sm font-bold text-gray-700 mb-2">Selesaikan pembayaran melalui aplikasi {payInfo.channelCode}</p>
-                            <p className="text-xs text-gray-500 font-medium">Silakan klik tombol di bawah untuk membuka halaman pembayaran resmi atau melakukan simulasi pembayaran.</p>
+                          <div className="w-full bg-white border border-emerald-100 rounded-xl p-6 shadow-sm mb-4 flex flex-col items-center text-center">
+                            <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-3">
+                              <Wallet className="w-8 h-8 text-slate-600" />
+                            </div>
+                            <h4 className="font-extrabold text-gray-800 mb-2">Cek Aplikasi E-Wallet Anda</h4>
+                            <p className="text-xs text-gray-500 font-medium font-sans">Silakan selesaikan pembayaran melalui aplikasi E-Wallet {payInfo.channelCode === 'E-Wallet' ? '' : payInfo.channelCode} Anda. Klik tombol di bawah untuk melakukan simulasi pembayaran.</p>
                           </div>
                         )}
 
-                        {(() => {
-                          const simulationUrl = createdBooking?.xendit?.actions?.find((a: any) => a.action === 'AUTH' || a.action === 'MOBILE_WEB_CHECKOUT_URL' || a.action === 'DESKTOP_WEB_CHECKOUT_URL' || a.action === 'BROWSER_CHECKOUT_URL' || a.url_type === 'WEB')?.url || (payInfo.value?.startsWith('http') ? payInfo.value : null);
-                          return simulationUrl ? (
-                            <button
-                              onClick={() => { window.location.href = simulationUrl; }}
-                              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-4 rounded-xl transition-all shadow-md active:scale-95 flex items-center justify-center text-sm gap-2 mt-2"
-                            >
-                              <Wallet className="w-4 h-4" /> Pay (Simulasi)
-                            </button>
-                          ) : null;
-                        })()}
+                        <button
+                          onClick={() => {
+                            const bookingCode = createdBooking.booking_code || createdBooking.bookingCode;
+                            window.location.href = `/simulate-checkout?booking=${bookingCode}&type=${payInfo.type}&channel=${payInfo.channelCode}&va=${payInfo.value}&amount=${createdBooking.total_price || createdBooking.totalPrice}`;
+                          }}
+                          className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-4 rounded-xl transition-all shadow-md active:scale-95 flex items-center justify-center text-sm gap-2 mt-2 cursor-pointer"
+                        >
+                          <Wallet className="w-4 h-4" /> Simulasikan Pembayaran
+                        </button>
                       </div>
                     </div>
                   );
@@ -2329,7 +2524,7 @@ export default function App() {
                         if (ins.startsWith('Transfer sesuai nominal')) {
                           return (
                             <li key={i}>
-                              Transfer sesuai nominal <span className="text-blue-600 font-extrabold">(hingga 3 digit terakhir)</span> ke rekening berikut:
+                              Transfer sesuai nominal <span className="text-emerald-600 font-extrabold">(hingga 3 digit terakhir)</span> ke rekening berikut:
                             </li>
                           );
                         }
@@ -2449,6 +2644,109 @@ export default function App() {
         </div>
       )}
 
+      {/* MODAL: General Booking Detail Popup (Success / Canceled / Rejected / Manual) */}
+      {detailBookingPopup.isOpen && detailBookingPopup.booking && (() => {
+        const b = detailBookingPopup.booking;
+        const rawStatus = (b.status || '').toLowerCase();
+        let statusColor = "bg-orange-100 text-orange-800 border-orange-200";
+        let statusText = "Menunggu Konfirmasi";
+        let StatusIcon = Clock3;
+        let bgHeader = "bg-amber-50 text-amber-600";
+        let statusDescription = "Pesanan Anda sedang menunggu verifikasi oleh admin.";
+
+        if (rawStatus === 'paid' || rawStatus === 'dikonfirmasi' || rawStatus === 'lunas') {
+          statusColor = "bg-emerald-100 text-emerald-800 border-emerald-200";
+          statusText = "Pembayaran Sukses";
+          StatusIcon = CheckCircle2;
+          bgHeader = "bg-emerald-50 text-emerald-600";
+          statusDescription = "Terima kasih! Pembayaran Anda telah terverifikasi. Selamat berolahraga!";
+        } else if (rawStatus === 'ditolak' || rawStatus === 'dibatalkan') {
+          statusColor = "bg-red-100 text-red-800 border-red-200";
+          statusText = rawStatus === 'dibatalkan' ? "Pesanan Dibatalkan" : "Pesanan Ditolak";
+          StatusIcon = XOctagon;
+          bgHeader = "bg-red-50 text-red-600";
+          statusDescription = rawStatus === 'dibatalkan' ? "Pesanan ini telah dibatalkan oleh pengguna." : "Maaf, pesanan Anda ditolak oleh admin.";
+        }
+
+        return (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', padding: '12px', boxSizing: 'border-box' }} className="animate-fade-in">
+            <div style={{ backgroundColor: 'white', borderRadius: '24px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', border: '1px solid #f3f4f6', display: 'flex', flexDirection: 'column', width: '100%', maxWidth: '360px', maxHeight: '90vh', overflow: 'hidden', boxSizing: 'border-box' }} className="animate-scale-up">
+
+              {/* Scrollable Content */}
+              <div style={{ overflowY: 'auto', overflowX: 'hidden', flex: 1, padding: '24px 16px 16px', boxSizing: 'border-box', wordBreak: 'break-word' }} className="flex flex-col items-center">
+                {/* Status Badge Icon */}
+                <div className={`w-14 h-14 ${bgHeader} rounded-full flex items-center justify-center mb-3.5 shadow-sm`}>
+                  <StatusIcon className="w-7 h-7" />
+                </div>
+
+                <h3 className="text-base font-black text-gray-900 mb-1 text-center">{statusText}</h3>
+                <p className="text-xs text-gray-500 font-medium text-center mb-5 px-2">{statusDescription}</p>
+
+                {/* Detail Pesanan */}
+                <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 text-xs space-y-2.5 w-full">
+                  <p className="text-gray-500 font-bold pb-1.5 border-b border-gray-200 text-[10px] uppercase tracking-wider">Detail Pesanan:</p>
+
+                  <div className="flex justify-between items-start gap-2">
+                    <span className="text-gray-400 font-medium shrink-0">Kode Booking</span>
+                    <span className="text-gray-900 font-extrabold text-right font-mono break-all">{b.bookingCode}</span>
+                  </div>
+
+                  <div className="flex justify-between items-start gap-2">
+                    <span className="text-gray-400 font-medium shrink-0">Lapangan</span>
+                    <span className="text-gray-900 font-extrabold text-right break-words min-w-0">{b.fieldName}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center gap-2">
+                    <span className="text-gray-400 font-medium shrink-0">Waktu Booking</span>
+                    <span className="text-gray-900 font-bold text-right">{b.createdAt}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center gap-2">
+                    <span className="text-gray-400 font-medium shrink-0">Jam main</span>
+                    <span className="text-gray-900 font-bold text-right">{b.time}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center gap-2">
+                    <span className="text-gray-400 font-medium shrink-0">No Telepon</span>
+                    <span className="text-gray-900 font-bold text-right">{b.customerPhone || '-'}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center gap-2">
+                    <span className="text-gray-400 font-medium shrink-0">Metode Pembayaran</span>
+                    <span className="text-gray-900 font-bold text-right">{formatPaymentMethod(b.paymentMethod)}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center gap-2 pt-2.5 border-t border-slate-200">
+                    <span className="text-gray-900 font-extrabold shrink-0">Total Pembayaran</span>
+                    <span className="text-emerald-600 font-black text-sm">Rp {b.price.toLocaleString('id-ID')}</span>
+                  </div>
+                </div>
+
+                {/* Additional Info if Paid */}
+                {(rawStatus === 'paid' || rawStatus === 'dikonfirmasi' || rawStatus === 'lunas') && (
+                  <div className="mt-4 bg-emerald-50/50 border border-emerald-100 rounded-xl p-3 text-center w-full">
+                    <p className="text-[10px] text-emerald-700 font-bold leading-relaxed">
+                      Silakan tunjukkan Kode Booking di atas kepada petugas lapangan saat datang ke lokasi.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Bottom Close Button */}
+              <div className="px-5 py-3 border-t border-slate-100 bg-white shrink-0">
+                <button
+                  onClick={() => setDetailBookingPopup({ isOpen: false, booking: null })}
+                  className="w-full py-3 rounded-xl font-extrabold text-xs text-gray-500 bg-gray-300 hover:bg-gray-400 transition-colors border border-gray-200 active:scale-95"
+                >
+                  Tutup
+                </button>
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
+
       {/* MODAL: Payment Info Popup */}
       {paymentPopup.isOpen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', padding: '12px', boxSizing: 'border-box' }} className="animate-fade-in">
@@ -2488,33 +2786,80 @@ export default function App() {
                   </div>
                 </div>
               )}
-
               {/* QR / VA Section */}
               {(paymentPopup.type === 'qris' || paymentPopup.type === 'url') ? (
                 <div className="flex flex-col items-center w-full">
-                  {paymentPopup.value === 'OVO_PUSH' ? (
-                    <div className="w-full bg-white border border-purple-100 rounded-xl p-5 mb-4 flex flex-col items-center text-center">
-                      <div className="w-14 h-14 bg-purple-100 rounded-full flex items-center justify-center mb-3">
-                        <span className="text-purple-600 font-extrabold text-lg">OVO</span>
-                      </div>
-                      <h4 className="font-extrabold text-gray-800 mb-2 text-xs">Cek Aplikasi OVO Anda</h4>
-                      <p className="text-[10px] text-gray-500 font-medium leading-relaxed">Notifikasi tagihan telah dikirimkan ke aplikasi OVO Anda. Silakan buka aplikasi OVO untuk menyelesaikan pembayaran.</p>
-                    </div>
-                  ) : paymentPopup.type === 'url' ? (
-                    <div className="w-full bg-white border border-emerald-100 rounded-xl p-5 mb-4 text-center">
-                      <p className="text-xs sm:text-sm font-extrabold text-gray-700 mb-2">Selesaikan pembayaran melalui Link Pembayaran E-Wallet</p>
-                      <p className="text-[10px] sm:text-xs text-gray-500 font-medium leading-relaxed">Silakan klik tombol di bawah untuk memproses transaksi Anda secara langsung di halaman resmi.</p>
-                    </div>
-                  ) : (
-                    <>
-                      <p className="text-[10px] text-gray-400 mb-3 leading-relaxed text-center">
-                        Scan QRIS/Barcode ini di aplikasi E-Wallet (GOPAY, OVO, DANA, LinkAja) atau m-Banking.
-                      </p>
-                      <div style={{ backgroundColor: 'white', padding: '12px', border: '2px solid #f1f5f9', borderRadius: '16px', marginBottom: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', boxSizing: 'border-box' }} className="flex justify-center items-center">
-                        <QRCode value={paymentPopup.value || "PAYMENT_QR"} style={{ width: '100%', maxWidth: '160px', height: 'auto' }} id="qris-canvas" />
-                      </div>
-                    </>
-                  )}
+                  {(() => {
+                    const pmCode = (paymentPopup.booking?.paymentMethodCode || paymentPopup.booking?.payment_method_code || '').toLowerCase();
+                    const isOvo = pmCode.includes('ovo') || paymentPopup.value === 'OVO_PUSH';
+                    const isShopeePay = pmCode.includes('shopee');
+                    const isDana = pmCode.includes('dana');
+                    const isGopay = pmCode.includes('gopay') || pmCode.includes('go');
+                    
+                    if (isShopeePay) {
+                      return (
+                        <>
+                          <div style={{ backgroundColor: 'white', padding: '12px', border: '2px solid #f1f5f9', borderRadius: '16px', marginBottom: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', boxSizing: 'border-box' }} className="flex justify-center items-center">
+                            <QRCode value={paymentPopup.value || "PAYMENT_QR"} style={{ width: '100%', maxWidth: '160px', height: 'auto' }} />
+                          </div>
+                          <p className="text-[10px] text-gray-500 font-medium leading-relaxed mb-4 text-center">
+                            Scan QR Code di atas menggunakan aplikasi ShopeePay Anda.
+                          </p>
+                        </>
+                      );
+                    } else if (isOvo) {
+                      return (
+                        <div className="w-full bg-white border border-purple-100 rounded-xl p-5 mb-4 flex flex-col items-center text-center">
+                          <div className="w-14 h-14 bg-purple-50 rounded-full flex items-center justify-center mb-3 p-2">
+                            <img src="https://branditechture.agency/brand-logos/wp-content/uploads/wpdm-cache/OVO-900x0.png" alt="OVO Logo" className="w-full h-full object-contain" />
+                          </div>
+                          <h4 className="font-extrabold text-gray-800 mb-2 text-xs">Cek Aplikasi OVO Anda</h4>
+                          <p className="text-[10px] text-gray-500 font-medium leading-relaxed">Notifikasi tagihan telah dikirimkan ke aplikasi OVO Anda. Silakan buka aplikasi OVO untuk menyelesaikan pembayaran.</p>
+                        </div>
+                      );
+                    } else if (isDana) {
+                      return (
+                        <div className="w-full bg-white border border-emerald-100 rounded-xl p-5 mb-4 flex flex-col items-center text-center">
+                          <div className="w-14 h-14 bg-emerald-50 rounded-full flex items-center justify-center mb-3 p-2">
+                            <img src="https://upload.wikimedia.org/wikipedia/commons/7/72/Logo_dana_blue.svg" alt="DANA Logo" className="w-full h-full object-contain" />
+                          </div>
+                          <h4 className="font-extrabold text-gray-800 mb-2 text-xs">Selesaikan Pembayaran DANA</h4>
+                          <p className="text-[10px] text-gray-500 font-medium leading-relaxed">Selesaikan pembayaran di aplikasi DANA Anda. Silakan klik tombol di bawah untuk melakukan simulasi pembayaran.</p>
+                        </div>
+                      );
+                    } else if (isGopay) {
+                      return (
+                        <div className="w-full bg-white border border-emerald-100 rounded-xl p-5 mb-4 flex flex-col items-center text-center">
+                          <div className="w-14 h-14 bg-emerald-50 rounded-full flex items-center justify-center mb-3 p-2">
+                              <img src="https://upload.wikimedia.org/wikipedia/commons/8/86/Gopay_logo.svg" alt="GoPay Logo" className="w-full h-full object-contain" />
+                            </div>
+                          <h4 className="font-extrabold text-gray-800 mb-2 text-xs">Selesaikan Pembayaran GoPay</h4>
+                          <p className="text-[10px] text-gray-500 font-medium leading-relaxed">Selesaikan pembayaran di aplikasi GoPay Anda. Silakan klik tombol di bawah untuk melakukan simulasi pembayaran.</p>
+                        </div>
+                      );
+                    } else if (paymentPopup.type === 'url') {
+                      return (
+                        <div className="w-full bg-white border border-emerald-100 rounded-xl p-5 mb-4 flex flex-col items-center text-center">
+                          <div className="w-14 h-14 bg-emerald-100 rounded-full flex items-center justify-center mb-3">
+                            <Wallet className="w-6 h-6 text-emerald-600" />
+                          </div>
+                          <h4 className="font-extrabold text-gray-800 mb-2 text-xs">Cek Aplikasi E-Wallet Anda</h4>
+                          <p className="text-[10px] text-gray-500 font-medium leading-relaxed">Selesaikan pembayaran di aplikasi E-Wallet {pmCode.toUpperCase()} Anda. Silakan klik tombol di bawah untuk melakukan simulasi pembayaran.</p>
+                        </div>
+                      );
+                    } else {
+                      return (
+                        <>
+                          <p className="text-[10px] text-gray-400 mb-3 leading-relaxed text-center">
+                            Scan QRIS/Barcode ini di aplikasi E-Wallet (GOPAY, OVO, DANA, LinkAja) atau m-Banking.
+                          </p>
+                          <div style={{ backgroundColor: 'white', padding: '12px', border: '2px solid #f1f5f9', borderRadius: '16px', marginBottom: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justify: 'center', width: '100%', boxSizing: 'border-box' }} className="flex justify-center items-center">
+                            <QRCode value={paymentPopup.value || "PAYMENT_QR"} style={{ width: '100%', maxWidth: '160px', height: 'auto' }} id="qris-canvas" />
+                          </div>
+                        </>
+                      );
+                    }
+                    })()}
                   <div className="flex flex-col gap-2 w-full">
                     {paymentPopup.type === 'qris' && paymentPopup.value !== 'OVO_PUSH' && (
                       <button
@@ -2539,42 +2884,44 @@ export default function App() {
                             img.src = 'data:image/svg+xml;base64,' + btoa(svgData);
                           }
                         }}
-                        className="inline-flex items-center justify-center w-full py-2.5 bg-slate-100 text-slate-700 rounded-xl font-extrabold text-xs hover:bg-slate-200 transition-colors active:scale-95"
+                        className="inline-flex items-center justify-center w-full py-2.5 bg-slate-100 text-slate-700 rounded-xl font-extrabold text-xs hover:bg-slate-200 transition-colors active:scale-95 cursor-pointer"
                       >
                         <Download className="w-3.5 h-3.5 mr-1.5" /> Unduh Barcode
                       </button>
                     )}
-                    {paymentPopup.type === 'qris' && (
-                      <button
-                        onClick={() => { window.location.href = 'https://simulate.xendit.co/qris'; }}
-                        className="inline-flex items-center justify-center w-full py-2.5 bg-emerald-600 text-white rounded-xl font-extrabold text-xs shadow-md hover:bg-emerald-700 transition-colors active:scale-95 gap-1.5"
-                      >
-                        <Wallet className="w-3.5 h-3.5" /> Pay (Simulasi)
-                      </button>
-                    )}
-                    {paymentPopup.type === 'url' && paymentPopup.value && paymentPopup.value.startsWith('http') ? (
-                      <a
-                        href={paymentPopup.value}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center justify-center w-full py-2.5 bg-emerald-600 text-white rounded-xl font-extrabold text-xs shadow-md hover:bg-emerald-700 transition-colors active:scale-95"
-                      >
-                        <Wallet className="w-3.5 h-3.5 mr-1.5" /> Buka Aplikasi E-Wallet
-                      </a>
-                    ) : paymentPopup.type === 'url' ? (
-                      <button
-                        onClick={() => {
-                          if (paymentPopup.value === 'OVO_PUSH') {
-                            showToast('Silakan buka aplikasi OVO di HP Anda.');
-                          } else {
-                            showToast('Silakan buka aplikasi E-Wallet Anda.');
-                          }
-                        }}
-                        className="inline-flex items-center justify-center w-full py-2.5 bg-emerald-600 text-white rounded-xl font-extrabold text-xs shadow-md hover:bg-emerald-700 transition-colors active:scale-95"
-                      >
-                        <Wallet className="w-3.5 h-3.5 mr-1.5" /> Buka Aplikasi E-Wallet
-                      </button>
-                    ) : null}
+                    {(() => {
+                      const pmCode = (paymentPopup.booking?.paymentMethodCode || paymentPopup.booking?.payment_method_code || '').toLowerCase();
+                      const isEwallet = pmCode.includes('gopay') || pmCode.includes('dana') || pmCode.includes('shopee') || pmCode.includes('linkaja') || pmCode.includes('ewallet') || pmCode.includes('ovo') || paymentPopup.value === 'OVO_PUSH';
+                      const bookingCode = paymentPopup.booking?.booking_code || paymentPopup.booking?.bookingCode;
+                      
+                      if (isEwallet) {
+                        return (
+                          <button
+                            onClick={() => {
+                              window.location.href = `/simulate-checkout?booking=${bookingCode}&type=EWALLET&channel=${pmCode.toUpperCase() || 'OVO'}&va=${paymentPopup.value}&amount=${paymentPopup.booking?.total_price || paymentPopup.booking?.price || 0}`;
+                            }}
+                            className="inline-flex items-center justify-center w-full py-2.5 bg-emerald-600 text-white rounded-xl font-extrabold text-xs shadow-md hover:bg-emerald-700 transition-colors active:scale-95 gap-1.5 cursor-pointer"
+                          >
+                            <Wallet className="w-3.5 h-3.5" /> Simulasikan Pembayaran
+                          </button>
+                        );
+                      }
+                      
+                      if (paymentPopup.type === 'qris') {
+                        return (
+                          <button
+                            onClick={() => {
+                              window.location.href = `/simulate-checkout?booking=${bookingCode}&type=QR_CODE&channel=QRIS&va=${paymentPopup.value}&amount=${paymentPopup.booking?.total_price || paymentPopup.booking?.price || 0}`;
+                            }}
+                            className="inline-flex items-center justify-center w-full py-2.5 bg-emerald-600 text-white rounded-xl font-extrabold text-xs shadow-md hover:bg-emerald-700 transition-colors active:scale-95 gap-1.5 cursor-pointer"
+                          >
+                            <Wallet className="w-3.5 h-3.5" /> Simulasikan Pembayaran
+                          </button>
+                        );
+                      }
+                      
+                      return null;
+                    })()}
                   </div>
                 </div>
               ) : (paymentPopup.type === 'OVER_THE_COUNTER' || paymentPopup.type === 'retail') ? (

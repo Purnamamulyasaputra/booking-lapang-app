@@ -48,6 +48,17 @@ export default function AdminPanel() {
     setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000);
   };
 
+  const formatPaymentMethod = (pm: string) => {
+    if (!pm) return 'Manual';
+    const capsAcronyms = ['bsi', 'bca', 'bri', 'bni', 'bjb', 'bss', 'bnc', 'va', 'otc', 'ovo', 'qris'];
+    return pm.toLowerCase().split(' ').map(word => {
+      if (capsAcronyms.includes(word)) {
+        return word.toUpperCase();
+      }
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    }).join(' ');
+  };
+
   useEffect(() => {
     window.alert = (msg) => showToast(msg, 'error');
   }, []);
@@ -711,7 +722,7 @@ export default function AdminPanel() {
                       <span className="text-[9px] font-extrabold text-gray-500 uppercase tracking-wider">{bkg.bookingCode || `ID: ${bkg.id}`}</span>
                       <span className="text-[8px] font-bold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-md">{bkg.submitTime}</span>
                       {bkg.status === 'menunggu pembayaran' && (
-                        <span className="text-[8px] font-bold bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-md">{bkg.paymentMethod}</span>
+                        <span className="text-[8px] font-bold bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-md">{formatPaymentMethod(bkg.paymentMethod)}</span>
                       )}
                     </div>
                     <p className="text-xs font-extrabold text-gray-900 truncate">
@@ -866,7 +877,7 @@ export default function AdminPanel() {
                   {/* Metode */}
                   <div className="col-span-2 mb-2 md:mb-0 flex justify-between md:block items-center">
                     <span className="md:hidden text-[10px] font-medium text-gray-500">Metode:</span>
-                    <p className="font-bold text-gray-700 text-[11px] sm:text-xs bg-gray-100 px-2 py-1 rounded-md inline-block uppercase">{bkg.paymentMethod || 'Manual'}</p>
+                    <p className="font-bold text-gray-700 text-[11px] sm:text-xs bg-gray-100 px-2 py-1 rounded-md inline-block">{formatPaymentMethod(bkg.paymentMethod)}</p>
                   </div>
 
                   {/* Status (Desktop) */}
@@ -2146,7 +2157,7 @@ export default function AdminPanel() {
             {currentTime.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
             <span className="mx-2">|</span>
             <Clock className="w-3.5 h-3.5 mr-1.5" />
-            {currentTime.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+            {currentTime.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
           </div>
         </header>
 
