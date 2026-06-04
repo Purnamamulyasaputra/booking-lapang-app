@@ -512,15 +512,21 @@ export default function App() {
 
   useEffect(() => {
     if (user?.id && currentView === 'checkout') {
-      fetch(`/api/customers?id=${user.id}`)
+      fetch(`/api/customers?id=${user.id}&t=${Date.now()}`)
         .then(res => res.json())
         .then(data => {
-          if (data && data.phone && !data.phone.startsWith("GOOGLE_")) {
+          if (data && data.phone && !data.phone.startsWith("GOOGLE_") && data.phone.length > 3) {
             setUserPhoneInput(data.phone);
             setIsPhoneLocked(true);
           } else {
-            setUserPhoneInput("");
-            setIsPhoneLocked(false);
+            const savedPhone = localStorage.getItem('user_last_phone');
+            if (savedPhone) {
+              setUserPhoneInput(savedPhone);
+              setIsPhoneLocked(false);
+            } else {
+              setUserPhoneInput("");
+              setIsPhoneLocked(false);
+            }
           }
         })
         .catch(err => console.error("Error fetching customer phone:", err));
@@ -807,9 +813,25 @@ export default function App() {
       });
       const data = await response.json();
       if (response.ok) {
+        if (userPhoneInput) {
+          localStorage.setItem('user_last_phone', userPhoneInput);
+        }
         setCreatedBooking(data);
-        setCheckoutStep('details');
-        window.scrollTo(0, 0);
+
+        // Auto-redirect for E-Wallets
+        let shouldRedirect = false;
+        if (data.receipt_img && data.receipt_img.startsWith('CHECKOUT_URL:')) {
+          const url = data.receipt_img.replace('CHECKOUT_URL:', '');
+          if (url && url !== 'OVO_PUSH' && url !== 'EWALLET_PUSH') {
+            window.location.href = url;
+            shouldRedirect = true;
+          }
+        }
+
+        if (!shouldRedirect) {
+          setCheckoutStep('details');
+          window.scrollTo(0, 0);
+        }
       } else {
         showToast(data.error || "Gagal membuat pesanan", "error");
       }
@@ -1199,7 +1221,7 @@ export default function App() {
                       {/* Action Buttons Container */}
                       <div className="mt-3 flex flex-wrap gap-2">
                         {/* Tombol Lihat Kode Pembayaran */}
-                        {bkg.receiptImg && (bkg.receiptImg.startsWith('QR_STRING:') || bkg.receiptImg.startsWith('CHECKOUT_URL:') || bkg.receiptImg.startsWith('VA_NUMBER:') || bkg.receiptImg.startsWith('RETAIL_OUTLET:')) && (bkg.status === 'menunggu pembayaran' || bkg.status === 'menunggu' || bkg.status === 'pending') && (
+                        {bkg.receiptImg && (bkg.receiptImg.startsWith('QR_STRING:') || bkg.receiptImg.startsWith('VA_NUMBER:') || bkg.receiptImg.startsWith('RETAIL_OUTLET:')) && (bkg.status === 'menunggu pembayaran' || bkg.status === 'menunggu' || bkg.status === 'pending') && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -1222,7 +1244,7 @@ export default function App() {
                         )}
 
                         {/* Tombol Cancel (Khusus untuk status Menunggu) */}
-                        {(bkg.status === 'menunggu' || bkg.status === 'menunggu pembayaran') && (
+                        {(bkg.status === 'menunggu' || bkg.status === 'menunggu pembayaran') && (!bkg.receiptImg || !bkg.receiptImg.startsWith('CHECKOUT_URL:')) && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -1852,7 +1874,7 @@ export default function App() {
                 type="tel"
                 value={userPhoneInput}
                 onChange={(e) => setUserPhoneInput(e.target.value)}
-                placeholder="Contoh: 081234567890"
+                placeholder="Masukkan nomer telepon anda"
                 disabled={isPhoneLocked}
                 className={`w-full border-2 border-gray-100 bg-slate-50 hover:border-emerald-200 hover:bg-white focus:bg-white rounded-2xl px-4 py-3.5 font-bold text-sm text-gray-800 focus:outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all placeholder:text-gray-400 placeholder:font-medium pr-28 ${isPhoneLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200 focus:ring-0 focus:border-gray-200' : ''
                   }`}
@@ -2211,12 +2233,12 @@ export default function App() {
                         const rawCode = createdBooking?.payment_method_code || 'PEMBAYARAN';
                         return rawCode.toUpperCase();
                       }
-                      
+
                       let typeStr = payInfo.type;
                       if (typeStr === 'EWALLET') typeStr = 'E-Wallet';
                       else if (typeStr === 'QR_CODE') typeStr = 'QRIS';
                       else typeStr = typeStr?.replace('_', ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
-                      
+
                       const channelStr = payInfo.channelCode === 'E-Wallet' ? 'E-Wallet' : payInfo.channelCode?.toUpperCase();
                       return `${typeStr} - ${channelStr}`;
                     })()}
@@ -2306,7 +2328,7 @@ export default function App() {
                         ) : isDana ? (
                           <div className="w-full bg-white border border-emerald-100 rounded-xl p-6 shadow-sm mb-4 flex flex-col items-center text-center">
                             <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mb-3 p-2.5">
-                               <img src="https://upload.wikimedia.org/wikipedia/commons/7/72/Logo_dana_blue.svg" alt="DANA Logo" className="w-full h-full object-contain" />
+                              <img src="https://upload.wikimedia.org/wikipedia/commons/7/72/Logo_dana_blue.svg" alt="DANA Logo" className="w-full h-full object-contain" />
                             </div>
                             <h4 className="font-extrabold text-gray-800 mb-2">Selesaikan Pembayaran DANA</h4>
                             <p className="text-xs text-gray-500 font-medium font-sans">Selesaikan pembayaran di aplikasi DANA Anda. Silakan klik tombol di bawah untuk melakukan simulasi pembayaran.</p>
@@ -2314,7 +2336,7 @@ export default function App() {
                         ) : isGopay ? (
                           <div className="w-full bg-white border border-emerald-100 rounded-xl p-6 shadow-sm mb-4 flex flex-col items-center text-center">
                             <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mb-3 p-2.5">
-                               <img src="https://upload.wikimedia.org/wikipedia/commons/8/86/Gopay_logo.svg" alt="GoPay Logo" className="w-full h-full object-contain" />
+                              <img src="https://upload.wikimedia.org/wikipedia/commons/8/86/Gopay_logo.svg" alt="GoPay Logo" className="w-full h-full object-contain" />
                             </div>
                             <h4 className="font-extrabold text-gray-800 mb-2">Selesaikan Pembayaran GoPay</h4>
                             <p className="text-xs text-gray-500 font-medium font-sans">Selesaikan transaksi Anda melalui aplikasi GoPay Anda. Silakan klik tombol di bawah untuk melakukan simulasi pembayaran.</p>
@@ -2331,12 +2353,16 @@ export default function App() {
 
                         <button
                           onClick={() => {
-                            const bookingCode = createdBooking.booking_code || createdBooking.bookingCode;
-                            window.location.href = `/simulate-checkout?booking=${bookingCode}&type=${payInfo.type}&channel=${payInfo.channelCode}&va=${payInfo.value}&amount=${createdBooking.total_price || createdBooking.totalPrice}`;
+                            if (payInfo.value && payInfo.value.startsWith('http')) {
+                              window.location.href = payInfo.value;
+                            } else {
+                              const bookingCode = createdBooking.booking_code || createdBooking.bookingCode;
+                              window.location.href = `/simulate-checkout?booking=${bookingCode}&type=${payInfo.type}&channel=${payInfo.channelCode}&va=${payInfo.value}&amount=${createdBooking.total_price || createdBooking.totalPrice}`;
+                            }
                           }}
                           className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-4 rounded-xl transition-all shadow-md active:scale-95 flex items-center justify-center text-sm gap-2 mt-2 cursor-pointer"
                         >
-                          <Wallet className="w-4 h-4" /> Simulasikan Pembayaran
+                          <Wallet className="w-4 h-4" /> {payInfo.value && payInfo.value.startsWith('http') ? 'Buka Aplikasi Pembayaran' : 'Simulasikan Pembayaran'}
                         </button>
                       </div>
                     </div>
@@ -2795,7 +2821,7 @@ export default function App() {
                     const isShopeePay = pmCode.includes('shopee');
                     const isDana = pmCode.includes('dana');
                     const isGopay = pmCode.includes('gopay') || pmCode.includes('go');
-                    
+
                     if (isShopeePay) {
                       return (
                         <>
@@ -2831,8 +2857,8 @@ export default function App() {
                       return (
                         <div className="w-full bg-white border border-emerald-100 rounded-xl p-5 mb-4 flex flex-col items-center text-center">
                           <div className="w-14 h-14 bg-emerald-50 rounded-full flex items-center justify-center mb-3 p-2">
-                              <img src="https://upload.wikimedia.org/wikipedia/commons/8/86/Gopay_logo.svg" alt="GoPay Logo" className="w-full h-full object-contain" />
-                            </div>
+                            <img src="https://upload.wikimedia.org/wikipedia/commons/8/86/Gopay_logo.svg" alt="GoPay Logo" className="w-full h-full object-contain" />
+                          </div>
                           <h4 className="font-extrabold text-gray-800 mb-2 text-xs">Selesaikan Pembayaran GoPay</h4>
                           <p className="text-[10px] text-gray-500 font-medium leading-relaxed">Selesaikan pembayaran di aplikasi GoPay Anda. Silakan klik tombol di bawah untuk melakukan simulasi pembayaran.</p>
                         </div>
@@ -2859,7 +2885,7 @@ export default function App() {
                         </>
                       );
                     }
-                    })()}
+                  })()}
                   <div className="flex flex-col gap-2 w-full">
                     {paymentPopup.type === 'qris' && paymentPopup.value !== 'OVO_PUSH' && (
                       <button
@@ -2893,7 +2919,7 @@ export default function App() {
                       const pmCode = (paymentPopup.booking?.paymentMethodCode || paymentPopup.booking?.payment_method_code || '').toLowerCase();
                       const isEwallet = pmCode.includes('gopay') || pmCode.includes('dana') || pmCode.includes('shopee') || pmCode.includes('linkaja') || pmCode.includes('ewallet') || pmCode.includes('ovo') || paymentPopup.value === 'OVO_PUSH';
                       const bookingCode = paymentPopup.booking?.booking_code || paymentPopup.booking?.bookingCode;
-                      
+
                       if (isEwallet) {
                         return (
                           <button
@@ -2906,7 +2932,7 @@ export default function App() {
                           </button>
                         );
                       }
-                      
+
                       if (paymentPopup.type === 'qris') {
                         return (
                           <button
@@ -2919,7 +2945,7 @@ export default function App() {
                           </button>
                         );
                       }
-                      
+
                       return null;
                     })()}
                   </div>

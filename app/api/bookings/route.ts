@@ -228,6 +228,22 @@ export async function POST(req: Request) {
           }
         }
 
+        // --- Expiration Logic Calculation ---
+        const now = new Date();
+        const qrisExpiresAtIso = new Date(now.getTime() + 30 * 60 * 1000).toISOString();
+        
+        let vaOtcExpiresAtIso = "";
+        const currentHourJkt = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Jakarta', hour: 'numeric', hour12: false }).format(now));
+        
+        if (currentHourJkt >= 18 && currentHourJkt !== 24) {
+          const d = now.toLocaleString('en-US', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' });
+          const [month, day, year] = d.split('/');
+          vaOtcExpiresAtIso = new Date(`${year}-${month}-${day}T23:59:59+07:00`).toISOString();
+        } else {
+          vaOtcExpiresAtIso = new Date(now.getTime() + 6 * 60 * 60 * 1000).toISOString();
+        }
+        // ------------------------------------
+
         let xenditPayload: any = {
           currency: "IDR",
           amount: totalPrice,
@@ -243,7 +259,12 @@ export async function POST(req: Request) {
           xenditPayload.payment_method = {
             type: "QR_CODE",
             reusability: "ONE_TIME_USE",
-            qr_code: { channel_code: channel || "DANA" }
+            qr_code: { 
+              channel_code: channel || "DANA",
+              channel_properties: {
+                expires_at: qrisExpiresAtIso
+              }
+            }
           };
           xenditPayload.description = `Pembayaran Lapangan ${bookingCode}`;
         } else if (isEwallet) {
@@ -293,11 +314,12 @@ export async function POST(req: Request) {
           xenditPayload.payment_method = {
             type: "VIRTUAL_ACCOUNT",
             reusability: "ONE_TIME_USE",
-            reference_id: `pm-level-${bookingCode}-${Date.now()}`,
+            reference_id: bookingCode,
             virtual_account: {
               channel_code: channel,
               channel_properties: {
-                customer_name: custName
+                customer_name: custName,
+                expires_at: vaOtcExpiresAtIso
               }
             }
           };
@@ -309,11 +331,12 @@ export async function POST(req: Request) {
           xenditPayload.payment_method = {
             type: "OVER_THE_COUNTER",
             reusability: "ONE_TIME_USE",
-            reference_id: `pm-otc-${bookingCode}-${Date.now()}`,
+            reference_id: bookingCode,
             over_the_counter: {
               channel_code: channel,
               channel_properties: {
-                customer_name: custName
+                customer_name: custName,
+                expires_at: vaOtcExpiresAtIso
               }
             }
           };
@@ -336,21 +359,21 @@ export async function POST(req: Request) {
 
           // For eWallet (GOPAY, OVO, DANA etc) - get checkout URL or QR from actions
           if (xenditResponseData.actions && xenditResponseData.actions.length > 0) {
-            // Priority: QR checkout string > mobile deeplink > web checkout
-            const qrAction = xenditResponseData.actions.find((a: any) =>
-              a.action === 'QR_CHECKOUT_STRING' || a.url_type === 'QR_CODE'
-            );
-            const deeplinkAction = xenditResponseData.actions.find((a: any) =>
-              a.action === 'MOBILE_DEEPLINK_CHECKOUT_URL' || a.url_type === 'DEEPLINK'
-            );
+            // Priority: web checkout > mobile deeplink > QR checkout string
             const webAction = xenditResponseData.actions.find((a: any) =>
               a.action === 'MOBILE_WEB_CHECKOUT_URL' || a.action === 'DESKTOP_WEB_CHECKOUT_URL' ||
               a.action === 'BROWSER_CHECKOUT_URL' || a.url_type === 'WEB'
             );
+            const deeplinkAction = xenditResponseData.actions.find((a: any) =>
+              a.action === 'MOBILE_DEEPLINK_CHECKOUT_URL' || a.url_type === 'DEEPLINK'
+            );
+            const qrAction = xenditResponseData.actions.find((a: any) =>
+              a.action === 'QR_CHECKOUT_STRING' || a.url_type === 'QR_CODE'
+            );
 
-            if (qrAction) qrStringOrUrl = qrAction.url || qrAction.qr_code || "";
-            else if (deeplinkAction) qrStringOrUrl = deeplinkAction.url || "";
-            else if (webAction) qrStringOrUrl = webAction.url || "";
+            if (webAction && webAction.url) qrStringOrUrl = webAction.url;
+            else if (deeplinkAction && deeplinkAction.url) qrStringOrUrl = deeplinkAction.url;
+            else if (qrAction) qrStringOrUrl = qrAction.url || qrAction.qr_code || "";
             else qrStringOrUrl = xenditResponseData.actions[0]?.url || "";
           }
 
@@ -404,7 +427,7 @@ export async function POST(req: Request) {
           // Log payment
           await pool.query(
             "INSERT INTO payment_logs (booking_id, invoice_code, amount, status, log_message) VALUES ($1, $2, $3, $4, $5)",
-            [booking.id, xenditResponseData.id || bookingCode, totalPrice, 'PENDING', `Payment request created via ${paymentMethodName}`]
+            [booking.id, bookingCode, totalPrice, 'MENUNGGU PEMBAYARAN', `Mencoba membuat request pembayaran ke Xendit`]
           );
 
         } else {
